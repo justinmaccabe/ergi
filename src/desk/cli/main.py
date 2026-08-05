@@ -210,18 +210,24 @@ def backfill(
     holdings: str = typer.Argument(..., help="path to a holdings YAML (kept outside the repo)"),
     db: str = typer.Option(..., "--db", help="database URL to load into"),
     config: str = typer.Option(None, "--config", "-c", help="path to portfolio.yaml"),
+    reset: bool = typer.Option(
+        False, "--reset", help="clear existing opening ledger, cash and contributions first"
+    ),
 ) -> None:
     """Load opening holdings from a month-end statement into the ledger.
 
     Idempotent: each row carries a content hash, so re-running the same file is
     a no-op rather than a duplicate ledger. Instruments come from the config;
-    positions, cash and contributions come from the holdings file.
+    positions, cash and contributions come from the holdings file. Use --reset
+    when the account structure changed, so stale rows under old account ids do
+    not linger alongside the new ones.
     """
     import datetime as _dt
     import hashlib
     from pathlib import Path
 
     import yaml
+    from sqlalchemy import delete
 
     from desk.domain.types import Action
     from desk.store.engine import build_engine, create_all, session_factory, session_scope
@@ -240,6 +246,10 @@ def backfill(
 
     entries = []  # (LedgerEntry-shaped) for the reconciliation print
     with session_scope(factory) as s:
+        if reset:
+            s.execute(delete(Transaction))
+            s.execute(delete(Cash))
+            s.execute(delete(ContributionRow))
         # instruments from config (currency declared, never inferred)
         for inst in cfg.instruments:
             s.merge(
