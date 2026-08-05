@@ -1,0 +1,33 @@
+# Runtime dependencies for Streamlit Community Cloud.
+#
+# Pinned exactly. An unpinned requirement means the build that went green in CI
+# and the build that deploys on a Tuesday can be different code — and a major
+# version bump of any of these arrives without warning.
+#
+# For local development install the package instead, which also brings the
+# development tooling:
+#
+#     pip install -e '.[dev,app,prices]'
+#
+# Keep this file and pyproject.toml in step when you change a dependency.
+
+streamlit==1.61.1
+pandas==2.3.3
+numpy==2.5.1
+scipy==1.18.0
+plotly==6.9.0
+
+SQLAlchemy==2.0.51
+alembic==1.19.0
+psycopg[binary]==3.2.12
+
+pydantic==2.13.4
+pydantic-settings==2.14.2
+PyYAML==6.0.3
+
+argon2-cffi==25.1.0
+itsdangerous==2.2.0
+
+typer==0.27.1
+rich==14.3.4
+yfinance==0.2.66

@@ -28,17 +28,33 @@ do not get there by accident.
 
 ## Quick start
 
+Install the package first — the `desk` command and the `desk.*` imports both
+depend on it:
+
 ```bash
-python -m venv .venv && .venv/bin/pip install -e '.[dev,app,prices]'
-cp config/portfolio.example.yaml config/portfolio.yaml   # gitignored
-cp .pii-denylist.example .pii-denylist                   # gitignored
-desk init          # interactive setup, writes your config
-desk doctor        # validate everything before you rely on it
-desk serve
+python3 -m venv .venv && .venv/bin/pip install -e '.[dev,app,prices]'
 ```
 
-To look around before committing to anything, `desk demo` seeds a synthetic
-portfolio from a fixed random seed and every screen works.
+Then look around with synthetic data. No configuration and no secrets needed:
+
+```bash
+.venv/bin/desk demo
+```
+
+```bash
+DESK_AUTH_MODE=demo .venv/bin/streamlit run streamlit_app.py
+```
+
+When you want it to be yours:
+
+```bash
+cp config/portfolio.example.yaml config/portfolio.yaml   # gitignored
+cp .pii-denylist.example .pii-denylist                   # gitignored
+.venv/bin/desk doctor        # says exactly what is still missing
+```
+
+To put it on GitHub and Streamlit Cloud, see **[DEPLOY.md](DEPLOY.md)** — written
+so someone who has never seen this codebase can follow it.
 
 ## Layout
 
