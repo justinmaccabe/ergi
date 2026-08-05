@@ -206,6 +206,104 @@ def demo(
 
 
 @app.command()
+def backfill(
+    holdings: str = typer.Argument(..., help="path to a holdings YAML (kept outside the repo)"),
+    db: str = typer.Option(..., "--db", help="database URL to load into"),
+    config: str = typer.Option(None, "--config", "-c", help="path to portfolio.yaml"),
+) -> None:
+    """Load opening holdings from a month-end statement into the ledger.
+
+    Idempotent: each row carries a content hash, so re-running the same file is
+    a no-op rather than a duplicate ledger. Instruments come from the config;
+    positions, cash and contributions come from the holdings file.
+    """
+    import datetime as _dt
+    import hashlib
+    from pathlib import Path
+
+    import yaml
+
+    from desk.domain.types import Action
+    from desk.store.engine import build_engine, create_all, session_factory, session_scope
+    from desk.store.models import Cash, ContributionRow, Instrument, Transaction
+
+    cfg = load(config) if resolve_path(config) else load_example()
+    spec = yaml.safe_load(Path(holdings).read_text(encoding="utf-8"))
+    usd_cad = float(spec.get("usd_cad", 1.0))
+    as_of = spec.get("as_of", _dt.date.today())
+    if isinstance(as_of, str):
+        as_of = _dt.date.fromisoformat(as_of)
+
+    engine = build_engine(db)
+    create_all(engine)
+    factory = session_factory(engine)
+
+    entries = []  # (LedgerEntry-shaped) for the reconciliation print
+    with session_scope(factory) as s:
+        # instruments from config (currency declared, never inferred)
+        for inst in cfg.instruments:
+            s.merge(
+                Instrument(
+                    ticker=inst.ticker, quote_symbol=inst.symbol,
+                    currency=inst.currency, kind=inst.kind.value,
+                )
+            )
+        # opening lots
+        for h in spec.get("holdings", []):
+            units = float(h["units"])
+            book_native = float(h["book_native"])
+            ccy = h.get("currency", "CAD")
+            fx = usd_cad if ccy == "USD" else 1.0
+            unit_cost = book_native / units if units else 0.0
+            digest = hashlib.sha256(
+                f"open|{h['account']}|{h['ticker']}|{units}|{book_native}".encode()
+            ).hexdigest()
+            s.merge(
+                Transaction(
+                    date=as_of, ticker=h["ticker"], account_id=h["account"],
+                    action=Action.BUY.value, quantity=units, price=unit_cost,
+                    fees=0.0, fx_rate=fx, source_hash=digest, note="opening lot",
+                )
+            )
+            entries.append((h["ticker"], h["account"], units, unit_cost, fx, ccy))
+        # cash and contributions
+        for c in spec.get("cash", []):
+            s.merge(Cash(account_id=c["account"], currency=c["currency"],
+                         amount=float(c["amount"])))
+        for c in spec.get("contributions", []):
+            d = c["date"]
+            d = _dt.date.fromisoformat(d) if isinstance(d, str) else d
+            s.merge(
+                ContributionRow(
+                    date=d, account_id=c["account"], amount=float(c["amount"]),
+                    kind="contribution", note=c.get("note"),
+                )
+            )
+
+    # reconciliation, straight from the pure ledger engine
+    from desk.analytics.positions import LedgerEntry, aggregate_by_ticker, build_ledger
+
+    ledger = [
+        LedgerEntry(date=as_of, ticker=t, account_id=a, action=Action.BUY,
+                    quantity=u, price=p, fx_rate=fx, currency=ccy)
+        for (t, a, u, p, fx, ccy) in entries
+    ]
+    result = build_ledger(ledger)
+    rolled = aggregate_by_ticker(result.positions)
+    table = Table(title="Backfilled holdings (book value, CAD)", show_header=True)
+    table.add_column("ticker")
+    table.add_column("units", justify="right")
+    table.add_column("book (CAD)", justify="right")
+    for p in rolled:
+        table.add_row(p.ticker, f"{p.quantity:,.2f}", f"{p.book_value_base:,.2f}")
+    console.print(table)
+    total = sum(p.book_value_base for p in rolled)
+    console.print(f"\n[bold]book value[/bold]  {total:>14,.2f} CAD across "
+                  f"{len({p.account_id for p in result.positions})} accounts")
+    console.print("[dim]Market value needs the price layer; book value is exact from the ledger.")
+
+
+@app.command()
 def serve() -> None:
     """Run the dashboard."""
     try:

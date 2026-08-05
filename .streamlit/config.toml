@@ -1,14 +1,14 @@
-# Slate and copper — deliberately distinct from the reference's gold-on-black,
-# so the two never read as the same product. The app also injects the palette
-# from config/portfolio.yaml at runtime; this file covers the chrome Streamlit
+# "Rich Romance" — Caviar / Vaporous Gray / Anemone / Mauvewood / Gilded Beige.
+# Deliberately distinct from the reference's gold-on-black. The app also injects
+# the palette from config at runtime; this file covers the chrome Streamlit
 # paints before any Python runs.
 
 [theme]
 base = "dark"
-primaryColor = "#B06E4F"
-backgroundColor = "#14181C"
-secondaryBackgroundColor = "#1C2228"
-textColor = "#E4E2DE"
+primaryColor = "#8E2749"          # Anemone
+backgroundColor = "#221C20"       # Caviar
+secondaryBackgroundColor = "#2C242A"
+textColor = "#DED8CE"             # Vaporous Gray
 font = "serif"
 
 [server]
