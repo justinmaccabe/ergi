@@ -1,0 +1,60 @@
+# Deny-by-default for anything that could carry a position, a balance, or a name.
+# The reference build this replaces kept its ledger in a .py file, where no
+# gitignore could help it. Everything below assumes the repo becomes public.
+
+# --- Portfolio data ---
+*.db
+*.sqlite
+*.sqlite3
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.parquet
+*.ofx
+*.qfx
+inbox/
+exports/
+private/
+local/
+
+# Statements and generated reports. Vendor fund-facts PDFs are excluded too:
+# the set of documents you keep is itself a disclosure of what you hold.
+*.pdf
+
+# --- Your configuration (the example file is the committed one) ---
+config/portfolio.yaml
+config/ips_values.toml
+config/ips.md
+!config/portfolio.example.yaml
+!config/ips_values.example.toml
+
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+*.pem
+*.key
+*.p12
+id_rsa*
+.pii-denylist
+
+# --- Caches and build ---
+.cache/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+
+# --- OS ---
+.DS_Store
+
+# --- Explicit allowances: fixtures are fake by policy, tested in CI ---
+!tests/fixtures/*.csv

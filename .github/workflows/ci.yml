@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The default token is broader than any job here needs.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hygiene:
+    name: Data hygiene
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned to commit SHAs, not floating tags. A mutable tag is
+      # the standard CI supply-chain vector: repointing v4 at a malicious commit
+      # has leaked secrets across thousands of repositories.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0          # commit-message scan needs the full log
+          persist-credentials: false
+
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Write the private denylist from a repository secret
+        if: ${{ secrets.PII_DENYLIST != '' }}
+        run: printf '%s\n' "${{ secrets.PII_DENYLIST }}" > .pii-denylist
+
+      - name: Portfolio data must not be in tracked files
+        run: python tools/pii_scan.py --tree
+
+      - name: Commit messages must not quote balances
+        run: python tools/pii_scan.py --log --all
+
+      - name: Committer identity must be an allowlisted noreply address
+        run: |
+          bad=$(git log --format='%ae' | sort -u | grep -v 'users.noreply.github.com$' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::commits authored by non-noreply addresses:"; echo "$bad"; exit 1
+          fi
+
+      - name: No data files may be tracked
+        run: |
+          bad=$(git ls-files | grep -Ei '\.(db|sqlite3?|csv|xlsx?|parquet|pdf|ofx|qfx)$' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::data files are tracked:"; echo "$bad"; exit 1
+          fi
+
+      - name: Secrets are read in exactly one module
+        run: |
+          bad=$(grep -rn --include='*.py' -E 'os\.environ|st\.secrets' src/ \
+                  | grep -v 'src/desk/settings.py' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::environment access outside desk/settings.py:"; echo "$bad"; exit 1
+          fi
+
+      - name: No relaxed Streamlit security flags anywhere
+        run: |
+          bad=$(grep -rn -E 'enableXsrfProtection[= ]+false|enableCORS[= ]+false' . \
+                  --exclude-dir=.git --exclude-dir=.venv || true)
+          if [ -n "$bad" ]; then
+            echo "::error::XSRF or CORS protection disabled:"; echo "$bad"; exit 1
+          fi
+
+      - uses: gitleaks/gitleaks-action@83373cf2f8c4db6e24b41c1a9b086bb9619e9cd3 # v2.3.7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  test:
+    name: Lint, types and tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev,app,prices,intake,report]'
+
+      - run: ruff check src tests tools
+      - run: ruff format --check src tests tools
+      - run: mypy
+
+      - name: Architecture layering contract
+        # The templatability argument rests on analytics/ being unable to reach
+        # config, the database, or the network. Asserted, not assumed.
+        run: lint-imports
+
+      - run: pytest -q
+
+      - name: The shipped example config must stay valid
+        run: python -c "from desk.config.loader import load_example; load_example()"
+
+      - name: The app must refuse to start without auth configured
+        run: |
+          if DESK_AUTH_MODE=passcode python -c "from desk.settings import get_settings; get_settings()" 2>/dev/null; then
+            echo "::error::app started with no passcode hash — this is the fail-open bug"; exit 1
+          fi
+          echo "confirmed: refuses to start"
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.12"
+      - run: pip install pip-audit
+      - run: pip-audit --strict --progress-spinner off .

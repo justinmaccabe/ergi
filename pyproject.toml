@@ -1,0 +1,125 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "desk"
+version = "0.1.0"
+description = "Portfolio analytics library with a dashboard on top."
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.7,<3",
+    "pydantic-settings>=2.3,<3",
+    "PyYAML>=6.0,<7",
+    "SQLAlchemy>=2.0,<3",
+    "alembic>=1.13,<2",
+    "pandas>=2.2,<3",
+    "numpy>=1.26,<3",
+    "scipy>=1.13,<2",
+    "argon2-cffi>=23.1,<26",
+    "itsdangerous>=2.2,<3",
+    "typer>=0.12,<1",
+    "rich>=13.7,<15",
+]
+
+[project.optional-dependencies]
+app = ["streamlit>=1.42,<2", "plotly>=5.22,<7"]
+prices = ["yfinance>=0.2.40,<1"]
+postgres = ["psycopg[binary]>=3.1,<4"]
+intake = ["pdfplumber>=0.11,<1"]
+report = ["Jinja2>=3.1,<4", "reportlab>=4.2,<5"]
+dev = [
+    "pytest>=8.2,<9",
+    "ruff>=0.5,<1",
+    "mypy>=1.10,<2",
+    "import-linter>=2.0,<3",
+    "pre-commit>=3.7,<5",
+]
+
+[project.scripts]
+desk = "desk.cli.main:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/desk"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests", "tools"]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src/desk"]
+ignore_missing_imports = true
+warn_unused_ignores = true
+
+# The math layer carries the strictest contract: it is the part meant to be
+# imported from a notebook, so its signatures have to be honest.
+[[tool.mypy.overrides]]
+module = "desk.analytics.*"
+disallow_untyped_defs = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = ["desk.settings", "desk.config.*", "desk.store.*"]
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+# --- Layering contract -------------------------------------------------------
+# The whole templatability argument rests on analytics/ being unable to reach
+# config, the database, or the network. Enforced here rather than by discipline.
+[tool.importlinter]
+root_packages = ["desk"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture"
+type = "layers"
+layers = [
+    "desk.app | desk.cli",
+    "desk.services",
+    "desk.store | desk.data | desk.jurisdictions | desk.intake | desk.reporting",
+    "desk.config",
+    "desk.analytics",
+    "desk.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "Analytics is pure"
+type = "forbidden"
+source_modules = ["desk.analytics"]
+forbidden_modules = [
+    "desk.config",
+    "desk.store",
+    "desk.data",
+    "desk.settings",
+    "desk.services",
+    "streamlit",
+    "sqlalchemy",
+    "yfinance",
+    "requests",
+]
+
+[[tool.importlinter.contracts]]
+name = "Secrets are read in exactly one place"
+type = "forbidden"
+source_modules = [
+    "desk.analytics",
+    "desk.app",
+    "desk.cli",
+    "desk.config",
+    "desk.data",
+    "desk.domain",
+    "desk.intake",
+    "desk.jurisdictions",
+    "desk.reporting",
+    "desk.services",
+    "desk.store",
+]
+forbidden_modules = ["dotenv"]

@@ -1,0 +1,112 @@
+# Example configuration. Copy to config/portfolio.yaml (gitignored) and edit,
+# or let `desk init` write it for you.
+#
+# This file is validated in CI on every commit, so it cannot drift out of sync
+# with the schema. It contains no real positions, balances, or personal
+# parameters, and it must stay that way — the PII scanner checks it.
+#
+#   Config = policy.  Database = state.  Environment = secrets.
+#
+# Your holdings do not belong here. They live in the database, entered through
+# `desk import` or the trade form.
+
+version: 1
+
+identity:
+  display_name: "Portfolio"
+  initials: "XX"          # your monogram — two or three letters
+  subtitle: ""
+
+branding:
+  primary: "#35424D"      # slate
+  accent: "#B06E4F"       # copper
+  positive: "#5E8B7E"
+  negative: "#A85C4C"
+
+locale:
+  base_currency: CAD
+  timezone: America/Toronto
+  market_calendar: XTSE
+
+jurisdiction:
+  id: ca                  # ca | generic — 'generic' reports contribution room as unlimited
+  params:
+    # Room accrues from the year you turn 18, so the year of birth is needed to
+    # compute it. Your real value goes in config/portfolio.yaml, which is gitignored.
+    birth_year: null
+    # The year the first-home account was opened; room accrues from then.
+    fhsa_open_year: null   # pii-ok: schema documentation, no value
+
+data:
+  price_provider: yfinance
+  fx_provider: yfinance
+  factor_provider: kenfrench
+  cache_dir: .cache
+  max_price_staleness_days: 5
+
+# Accounts are data. Two accounts of the same type at different custodians keep
+# separate balances but share one contribution limit — that is what room_group
+# expresses. Give every account you hold its own entry.
+accounts: []
+# accounts:
+#   - {id: broker_a_tfsa, label: "Broker A", type: tfsa, room_group: "ca:tfsa"}
+#   - {id: broker_b_tfsa, label: "Broker B", type: tfsa, room_group: "ca:tfsa"}
+#   - {id: broker_a_fhsa, label: "Broker A", type: fhsa, room_group: "ca:fhsa"}
+
+# Currency is declared here, never guessed from the ticker suffix.
+# `symbol` is the quote symbol; omit it only when kind is 'private'.
+instruments: []
+# instruments:
+#   - {ticker: EXMP, symbol: EXMP.TO, currency: CAD, kind: etf}
+#   - {ticker: PRIV, currency: CAD, kind: private}
+
+# `daily` is the "how did the market do today" comparator.
+# `risk` is the regression benchmark for beta, alpha and capture.
+# These are deliberately separate fields; conflating them is a known trap.
+benchmarks:
+  daily: null
+  risk: null
+  comparators: []
+
+# The single source for the policy benchmark, drift bands, the next-dollar
+# allocator, and the IPS policy table.
+#
+# 'mirror_holdings' is the honest starting point: your policy is what you own,
+# so drift is zero and nothing pretends you have adopted a target you have not.
+# Switch to 'sleeves' when you decide on one.
+policy:
+  source: mirror_holdings
+  review_frequency: quarterly
+  sleeves: []
+  cash_target: 0.0
+
+# Capital market assumptions feeding Black-Litterman views.
+# Any number here requires a source and an as_of date.
+cma:
+  source: ""
+  as_of: null
+  basis: real_excess_cash
+  regions: {}
+  factor_premia: {}
+  prior: market_cap
+  confidence: 0.35
+
+leverage:
+  enabled: false
+
+risk:
+  default_period: 3y
+  risk_free: kenfrench_rf
+
+features:
+  lookthrough: true
+  factors: true
+  optimizer: true
+  contributions: true
+  ips: true
+
+ips:
+  enabled: true
+  template: config/ips_template.md.j2
+  values: config/ips_values.toml   # gitignored — your real parameters live here
+  pdf: true

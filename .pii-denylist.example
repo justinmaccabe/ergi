@@ -1,0 +1,13 @@
+# Copy to .pii-denylist (gitignored) and add your own terms.
+#
+# The list is itself sensitive — it is your name, handle, employer and account
+# nicknames — so the real one never enters the repository. CI reads it from a
+# repository secret. One term per line; matching is case-insensitive.
+#
+# Its absence weakens the scan but never blocks it, so a fresh clone still runs.
+
+# Your legal name and any variants you sign with
+# Your GitHub handle
+# Your employer
+# Any account nickname you use in conversation
+# Your personal and work email domains

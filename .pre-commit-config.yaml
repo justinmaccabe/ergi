@@ -1,0 +1,48 @@
+# Pre-commit is convenience — it is bypassable with --no-verify. CI is the
+# enforcement. Both call the same tools/pii_scan.py so they cannot drift.
+repos:
+  - repo: local
+    hooks:
+      - id: pii-scan-staged
+        name: portfolio data must not enter git
+        entry: python tools/pii_scan.py --staged
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: pii-scan-commit-msg
+        name: commit messages must not quote balances
+        entry: python tools/pii_scan.py --commit-msg
+        language: system
+        stages: [commit-msg]
+
+      - id: ruff
+        name: ruff
+        entry: ruff check --fix
+        language: system
+        types: [python]
+
+      - id: ruff-format
+        name: ruff format
+        entry: ruff format
+        language: system
+        types: [python]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=512"]
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+      - id: check-toml
+      # A committed database or spreadsheet is almost always a leak.
+      - id: check-case-conflict
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
