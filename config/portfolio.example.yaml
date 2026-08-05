@@ -1,5 +1,5 @@
-# Example configuration. Copy to config/portfolio.yaml (gitignored) and edit,
-# or let `desk init` write it for you.
+# Example configuration. Copy to config/portfolio.yaml (gitignored) and edit.
+# `desk doctor` will then tell you what still needs filling in.
 #
 # This file is validated in CI on every commit, so it cannot drift out of sync
 # with the schema. It contains no real positions, balances, or personal

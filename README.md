@@ -71,7 +71,7 @@ src/desk/
   intake/       statement parsing with a mandatory review gate
   services/     composition root — the only layer that knows all of the above
   app/          Streamlit. no math, no SQL
-  cli/          desk init | import | doctor | snapshot | demo | serve
+  cli/          desk doctor | demo | serve | hash-passcode
 tools/      pii_scan.py — the data-hygiene gate
 ```
 
@@ -136,6 +136,44 @@ stop you, as it stopped an earlier draft of this very paragraph.
 
 ## Status
 
-Phase 0 and part of phase 1 are built: configuration, settings and auth
-primitives, the cost-basis engine, and the hygiene tooling. Store, providers,
-jurisdictions, intake, the analytics suite and the dashboard follow.
+Deployable, not yet usable as a portfolio tracker. It runs, it is locked down,
+and it shows synthetic data. It cannot yet hold yours.
+
+**Working**
+
+- Configuration schema with cross-field validation, and a loader that rejects
+  typos rather than ignoring them
+- Fail-closed settings and auth: argon2id passcodes, rate limiting, signed
+  sessions with absolute and idle expiry
+- The cost-basis engine — buys, sells, splits, return of capital, trade-date FX,
+  per-account pooling
+- Canadian registered-account contribution room, covering the three main plan
+  types, with shared room groups and a generic fallback for anywhere else
+- Database schema and engine construction
+- Price resolution with source and staleness attached to every quote
+- `desk doctor`, `desk demo`, `desk serve`, `desk hash-passcode`
+- Dashboard shell with a working Overview tab on synthetic data
+- The full hygiene and CI apparatus
+
+**Not built yet**
+
+- **No price feed.** The provider protocol exists; the yfinance implementation
+  behind it does not. Nothing fetches a quote, so there is no market value
+  anywhere — only book value from the ledger.
+- **No statement import.** `intake/` is empty. Holdings cannot be loaded.
+- **No trade entry form.** The Manage tab is a placeholder.
+- **The database is not wired to the app.** Models and engine exist; the
+  dashboard reads the demo generator directly.
+- **No performance measurement** — no TWR, no XIRR, no snapshot history.
+- **No risk suite, factor regressions, look-through, optimizers, frontier, or
+  policy benchmark.**
+- **No IPS.** `reporting/` is empty.
+- **No Alembic migration files.** Tables come from `create_all`, which is fine
+  for a first deployment and not for schema changes afterwards.
+- **No scheduled snapshot job.**
+
+Five of the six dashboard tabs say so on their face rather than pretending
+otherwise.
+
+The next piece worth building is the price provider, because market value
+unblocks most of what follows.

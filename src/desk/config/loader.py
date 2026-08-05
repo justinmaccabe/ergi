@@ -108,5 +108,7 @@ def load(
     raise ConfigError(
         "no configuration found.\n"
         f"  Expected {DEFAULT_CONFIG_PATH} (override with $DESK_CONFIG_PATH).\n"
-        "  Run `desk init` to create one, or `desk demo` to explore with synthetic data."
+        "  Create one with:  cp config/portfolio.example.yaml config/portfolio.yaml\n"
+        "  Then `desk doctor` lists what still needs filling in.\n"
+        "  To look around first, run with DESK_AUTH_MODE=demo for synthetic data."
     )

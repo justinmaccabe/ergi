@@ -58,7 +58,7 @@ def doctor(
 
     # -- accounts and room groups --
     if not cfg.accounts:
-        table.add_row("accounts", WARN, "none declared — run `desk init`")
+        table.add_row("accounts", WARN, "none declared — add them to config/portfolio.yaml")
         problems += 1
     else:
         groups = cfg.room_groups()
