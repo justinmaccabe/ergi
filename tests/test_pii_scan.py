@@ -117,3 +117,30 @@ class TestRedaction:
         (finding,) = scan_text("price = 45.0931", "f", RULES)
         assert "45.0931" not in finding.excerpt
         assert "[4" in finding.excerpt
+
+
+class TestPerRulePathExemptions:
+    """Exemptions are per rule, not per file.
+
+    The module implementing registered-account tax rules must be able to name
+    those account types. It should still be scanned for balances, fill prices
+    and custodian names — a whole-file allowlist would switch all of that off
+    at once.
+    """
+
+    def test_account_types_are_allowed_in_the_jurisdiction_module(self) -> None:
+        line = "# TFSA room accrues from the year you turn 18"
+        assert scan_text(line, "src/desk/jurisdictions/ca.py", RULES) == []
+
+    def test_the_same_line_is_flagged_anywhere_else(self) -> None:
+        line = "# TFSA room accrues from the year you turn 18"
+        assert scan_text(line, "src/desk/app/main.py", RULES) != []
+
+    def test_other_rules_still_apply_inside_the_exempt_path(self) -> None:
+        where = "src/desk/jurisdictions/ca.py"
+        assert {f.rule for f in scan_text("price = 45.0931", where, RULES)} == {
+            "high-precision-float"
+        }
+        assert {f.rule for f in scan_text("# matches the RBC portal", where, RULES)} == {
+            "custodian-name"
+        }

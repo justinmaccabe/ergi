@@ -1,0 +1,27 @@
+# Slate and copper — deliberately distinct from the reference's gold-on-black,
+# so the two never read as the same product. The app also injects the palette
+# from config/portfolio.yaml at runtime; this file covers the chrome Streamlit
+# paints before any Python runs.
+
+[theme]
+base = "dark"
+primaryColor = "#B06E4F"
+backgroundColor = "#14181C"
+secondaryBackgroundColor = "#1C2228"
+textColor = "#E4E2DE"
+font = "serif"
+
+[server]
+# Set explicitly rather than left to a default that could change.
+enableXsrfProtection = true
+enableCORS = true
+headless = true
+
+[browser]
+gatherUsageStats = false
+
+[client]
+# A traceback can carry a DataFrame repr, and a repr can carry positions.
+# Never render exception details in the browser.
+showErrorDetails = "none"
+toolbarMode = "minimal"

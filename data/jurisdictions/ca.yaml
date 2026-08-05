@@ -1,0 +1,73 @@
+# Canadian registered-account contribution limits.
+#
+# These are published CRA figures — public facts, not personal data, which is
+# why this path is on the PII scanner's allowlist. Nothing here describes any
+# individual; the personal inputs (year of birth, the year an account was
+# opened, amounts actually contributed) live in gitignored config and in the
+# database respectively.
+#
+# The tables are data so that a new tax year is a one-line edit rather than a
+# code change. Only the accrual arithmetic is Python.
+
+jurisdiction: ca
+currency: CAD
+
+room_groups:
+  ca:tfsa:
+    label: Tax-Free Savings Account
+    # Room accrues from the year the holder turns 18, and unused room carries
+    # forward indefinitely. Withdrawals are added back the following calendar
+    # year, which is why withdrawal_recontribution is modelled at all.
+    accrual: from_age
+    accrual_age: 18
+    first_year: 2009
+    withdrawal_recontribution: true
+    lifetime_limit: null
+    annual_limits:
+      2009: 5000
+      2010: 5000
+      2011: 5000
+      2012: 5000
+      2013: 5500
+      2014: 5500
+      2015: 10000
+      2016: 5500
+      2017: 5500
+      2018: 5500
+      2019: 6000
+      2020: 6000
+      2021: 6000
+      2022: 6000
+      2023: 6500
+      2024: 7000
+      2025: 7000
+      2026: 7000
+    notes:
+      - Room accrues from the year the holder turns 18 and carries forward.
+      - A withdrawal is added back to room in the following calendar year.
+
+  ca:fhsa:
+    label: First Home Savings Account
+    # Unlike the TFSA, room starts only when an account is first opened, and
+    # carryforward is capped at one year's worth rather than unlimited.
+    accrual: from_account_open
+    first_year: 2023
+    withdrawal_recontribution: false
+    annual_limit: 8000
+    max_carryforward: 8000
+    lifetime_limit: 40000
+    notes:
+      - Room accrues only from the year the first account was opened.
+      - At most one additional year of unused room may be carried forward.
+      - Participation is capped at a lifetime limit across all accounts.
+
+  ca:rrsp:
+    label: Registered Retirement Savings Plan
+    # Room is a percentage of prior-year earned income up to an annual dollar
+    # ceiling, so it cannot be derived from age or an open date. The holder's
+    # notice of assessment is the authority; supply it in config.
+    accrual: from_earned_income
+    requires_declared_limit: true
+    notes:
+      - Room depends on prior-year earned income and pension adjustments.
+      - Take the figure from your notice of assessment; it cannot be inferred.

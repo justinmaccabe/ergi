@@ -72,6 +72,15 @@ class Rule:
     name: str
     pattern: re.Pattern[str]
     explain: str
+    # Paths where this specific rule does not apply. Deliberately per-rule
+    # rather than per-file: the module implementing registered-account tax
+    # rules must be able to name those account types, but it should still be
+    # scanned for balances, fill prices and custodian names like anything else.
+    # A whole-file allowlist would switch all of that off at once.
+    exempt_paths: tuple[str, ...] = ()
+
+    def applies_to(self, path: str) -> bool:
+        return not any(path.startswith(prefix) for prefix in self.exempt_paths)
 
 
 def build_rules(denylist: tuple[str, ...] = ()) -> tuple[Rule, ...]:
@@ -93,6 +102,12 @@ def build_rules(denylist: tuple[str, ...] = ()) -> tuple[Rule, ...]:
             "registered-account-type",
             re.compile(r"\b(?:TFSA|FHSA|RRSP|RESP|LIRA|RRIF)\b"),
             "a registered account type outside the account-type enum",
+            exempt_paths=(
+                # The module whose entire job is these accounts' tax rules, and
+                # its tests. Every other rule still applies to both.
+                "src/desk/jurisdictions/",
+                "tests/test_jurisdictions.py",
+            ),
         ),
         Rule(
             "custodian-name",
@@ -112,6 +127,13 @@ def build_rules(denylist: tuple[str, ...] = ()) -> tuple[Rule, ...]:
             "birth-year",
             re.compile(r"(?:birth|dob|born|age)\D{0,12}(?:19|20)\d{2}", re.IGNORECASE),
             "a birth year — this belongs in gitignored config, not in source",
+            exempt_paths=(
+                # Room accrual is defined in terms of the year the holder turns
+                # 18, so these tests have to supply a birth year. The target of
+                # this rule is a constant in production source, not a fixture.
+                "src/desk/jurisdictions/",
+                "tests/test_jurisdictions.py",
+            ),
         ),
         Rule(
             # RFC 2606 reserves example.com/net/org and .test/.invalid precisely
@@ -175,10 +197,11 @@ def _redact(text: str, match: re.Match[str]) -> str:
 
 def scan_text(text: str, where: str, rules: tuple[Rule, ...]) -> list[Finding]:
     findings: list[Finding] = []
+    active = tuple(r for r in rules if r.applies_to(where))
     for i, line in enumerate(text.splitlines(), start=1):
         if INLINE_ESCAPE.search(line):
             continue
-        for rule in rules:
+        for rule in active:
             match = rule.pattern.search(line)
             if match:
                 findings.append(Finding(where, i, rule.name, rule.explain, _redact(line, match)))
@@ -209,8 +232,18 @@ def scan_paths(paths: list[Path], rules: tuple[Rule, ...]) -> list[Finding]:
 
 
 def scan_tree(rules: tuple[Rule, ...]) -> list[Finding]:
+    """Scan tracked files, plus untracked files git would be willing to add.
+
+    Including the untracked-but-not-ignored set matters: a file you have just
+    written is not in the index yet, so a tracked-only scan would report clean
+    right up until the moment you stage the thing it should have caught.
+    """
     tracked = [line for line in _git("ls-files").splitlines() if line]
-    paths = [ROOT / p for p in tracked] or [
+    untracked = [
+        line for line in _git("ls-files", "--others", "--exclude-standard").splitlines() if line
+    ]
+    names = sorted(set(tracked) | set(untracked))
+    paths = [ROOT / p for p in names] or [
         p for p in ROOT.rglob("*") if ".venv" not in p.parts and ".git" not in p.parts
     ]
     return scan_paths(paths, rules)
