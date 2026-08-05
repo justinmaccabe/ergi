@@ -13,7 +13,7 @@ arrives here as an argument from the caller, never as a hidden global.
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -93,8 +93,15 @@ def load(
     explicit: str | os.PathLike[str] | None = None,
     *,
     allow_example: bool = False,
+    db_fallback: Callable[[], Mapping[str, Any] | None] | None = None,
 ) -> PortfolioConfig:
     """Load the active configuration.
+
+    Resolution order: file, then the database overlay, then the shipped example.
+    `db_fallback` is a callable supplied by a higher layer (the app) that returns
+    the stored config mapping or None — this module never reads the store itself,
+    which is what keeps the config layer below the store in the import graph and
+    lets a read-only host (Streamlit Cloud) keep its config as a row.
 
     `allow_example` exists for demo mode and for tests. A real run without a
     config should fail loudly and say how to create one, not quietly adopt
@@ -103,6 +110,10 @@ def load(
     path = resolve_path(explicit)
     if path is not None:
         return load_file(path)
+    if db_fallback is not None:
+        raw = db_fallback()
+        if raw is not None:
+            return parse(raw, source="database app_config")
     if allow_example:
         return load_example()
     raise ConfigError(

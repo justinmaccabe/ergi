@@ -11,6 +11,8 @@ name. Nothing identifying is hardcoded anywhere in this package.
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Mapping
+from typing import Any
 
 import pandas as pd
 import streamlit as st
@@ -18,8 +20,28 @@ import streamlit as st
 from desk.analytics.positions import aggregate_by_ticker, build_ledger
 from desk.config.loader import ConfigError, load
 from desk.config.schema import PortfolioConfig
+from desk.domain.types import LedgerResult
 from desk.services import demo as demo_service
-from desk.settings import AuthMode, SettingsError, get_settings
+from desk.settings import AuthMode, Settings, SettingsError, get_settings
+
+CashRows = tuple[tuple[str, str, float], ...]
+
+
+def _load_book(settings: Settings, *, is_demo: bool) -> tuple[LedgerResult | None, CashRows]:
+    """Source the book: synthetic in demo, the store otherwise.
+
+    A leaf-node swap — both paths hand the same `LedgerResult` and cash rows to
+    the renderer, which is why the dashboard needs no branch of its own.
+    """
+    if is_demo:
+        book = demo_service.generate(today=dt.date.today())
+        return build_ledger(book.entries), book.cash
+    if settings.database_url is None:
+        return None, ()
+    from desk.services import portfolio as portfolio_service
+
+    loaded = portfolio_service.load(settings.database_url.get_secret_value())
+    return build_ledger(loaded.entries), loaded.cash
 
 st.set_page_config(page_title="Portfolio", layout="wide", initial_sidebar_state="collapsed")
 
@@ -93,8 +115,15 @@ def main() -> None:
 
     subject = require_auth(settings)
 
+    def _db_config() -> Mapping[str, Any] | None:
+        if settings.database_url is None:
+            return None
+        from desk.services import portfolio as portfolio_service
+
+        return portfolio_service.load_config_payload(settings.database_url.get_secret_value())
+
     try:
-        cfg = load(settings.config_path, allow_example=is_demo)
+        cfg = load(settings.config_path, allow_example=is_demo, db_fallback=_db_config)
     except ConfigError as exc:
         _fatal("Configuration problem", str(exc))
         return
@@ -108,8 +137,9 @@ def main() -> None:
 
     tabs = st.tabs(["Overview", "Accounts", "Analytics", "Risk", "Manage", "Policy"])
 
+    result, cash = _load_book(settings, is_demo=is_demo)
     with tabs[0]:
-        _overview(cfg, is_demo=is_demo)
+        _overview(cfg, result, cash, is_demo=is_demo)
     later = ["Accounts", "Analytics", "Risk", "Manage", "Policy"]
     for tab, name in zip(tabs[1:], later, strict=True):
         with tab:
@@ -125,13 +155,16 @@ def main() -> None:
             st.button("Sign out", on_click=sign_out)
 
 
-def _overview(cfg: PortfolioConfig, *, is_demo: bool) -> None:
-    if is_demo:
-        book = demo_service.generate(today=dt.date.today())
-        result = build_ledger(book.entries)
-    else:
+def _overview(
+    cfg: PortfolioConfig,
+    result: LedgerResult | None,
+    cash: CashRows,
+    *,
+    is_demo: bool,
+) -> None:
+    if result is None or not result.positions:
         st.info(
-            "No positions yet. Import a statement with `desk import`, or add trades "
+            "No positions yet. Load a statement with `desk backfill`, or add trades "
             "on the Manage tab.",
             icon="📄",
         )
@@ -147,6 +180,14 @@ def _overview(cfg: PortfolioConfig, *, is_demo: bool) -> None:
     b.metric("Realized gains", f"{realized:,.0f} {ccy}")
     c.metric("Positions", f"{len(rolled)}")
     d.metric("Accounts", f"{len({p.account_id for p in result.positions})}")
+
+    if cash:
+        base_cash = sum(amt for _, cur, amt in cash if cur == ccy)
+        other = [(cur, amt) for _, cur, amt in cash if cur != ccy]
+        note = f"Uninvested cash: {base_cash:,.2f} {ccy}"
+        if other:
+            note += " · " + " · ".join(f"{amt:,.2f} {cur}" for cur, amt in other)
+        st.caption(note)
 
     st.markdown(
         '<p class="note">Market value needs a price feed, which arrives with the '

@@ -303,6 +303,34 @@ def backfill(
     console.print("[dim]Market value needs the price layer; book value is exact from the ledger.")
 
 
+@app.command("push-config")
+def push_config(
+    db: str = typer.Option(..., "--db", help="database URL to write the config into"),
+    config: str = typer.Option(None, "--config", "-c", help="path to portfolio.yaml"),
+) -> None:
+    """Store the portfolio config as a database row.
+
+    A read-only host (Streamlit Cloud) has no committed config file, so the
+    deployment keeps its config here. The file is validated before it is stored,
+    so an invalid config fails on your machine rather than on the host.
+    """
+    from pathlib import Path
+
+    from desk.services.portfolio import save_config_payload
+
+    path = resolve_path(config)
+    if path is None:
+        console.print("[red]no config file found (looked for config/portfolio.yaml)")
+        raise typer.Exit(1)
+    try:
+        load(str(path))  # validate before storing
+    except ConfigError as exc:
+        console.print(f"[red]{exc}")
+        raise typer.Exit(1) from exc
+    save_config_payload(db, Path(path).read_text(encoding="utf-8"))
+    console.print(f"[green]stored config from {path} into the database.")
+
+
 @app.command()
 def serve() -> None:
     """Run the dashboard."""
