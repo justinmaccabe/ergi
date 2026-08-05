@@ -37,8 +37,11 @@ jobs:
       - name: Portfolio data must not be in tracked files
         run: python tools/pii_scan.py --tree
 
+      # A bare --log scans every commit message on every ref. This is the leak
+      # a later scrub commit cannot retract: a message is published the moment
+      # anyone fetches, and rewriting history does not reach forks or clones.
       - name: Commit messages must not quote balances
-        run: python tools/pii_scan.py --log --all
+        run: python tools/pii_scan.py --log
 
       - name: Committer identity must be an allowlisted noreply address
         run: |
@@ -94,8 +97,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e '.[dev,app,prices,intake,report]'
 
-      - run: ruff check src tests tools
-      - run: ruff format --check src tests tools
+      - run: ruff check src tests tools streamlit_app.py
+      - run: ruff format --check src tests tools streamlit_app.py
       - run: mypy
 
       - name: Architecture layering contract

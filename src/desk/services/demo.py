@@ -34,7 +34,10 @@ UNIVERSE: tuple[tuple[str, str, str, float], ...] = (
     ("HOLDCO", "", "CAD", 0.06),  # private, manually marked
 )
 
-DEMO_ACCOUNTS: tuple[tuple[str, str, str, str], ...] = (
+# id, label, type, room group. The taxable account has no room group, which is
+# the whole reason that field is optional: a limit is a property of some
+# account types, not of accounts in general.
+DEMO_ACCOUNTS: tuple[tuple[str, str, str, str | None], ...] = (
     ("demo_tfsa_a", "Demo Registered A", "tfsa", "ca:tfsa"),
     ("demo_tfsa_b", "Demo Registered B", "tfsa", "ca:tfsa"),
     ("demo_fhsa", "Demo First-Home", "fhsa", "ca:fhsa"),

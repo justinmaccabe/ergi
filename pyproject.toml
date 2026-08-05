@@ -34,6 +34,7 @@ dev = [
     "mypy>=1.10,<2",
     "import-linter>=2.0,<3",
     "pre-commit>=3.7,<5",
+    "types-PyYAML>=6.0,<7",
 ]
 
 [project.scripts]
@@ -51,7 +52,7 @@ target-version = "py311"
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 files = ["src/desk"]
 ignore_missing_imports = true
 warn_unused_ignores = true

@@ -190,3 +190,17 @@ names it. This is the app working correctly.
 **Build fails on Streamlit Cloud** — check the main file is `streamlit_app.py`
 and that `requirements.txt` is unmodified. It is pinned exactly, so builds are
 reproducible.
+
+**A completely blank page** — this means an unexpected exception. The app is
+configured with `showErrorDetails = "none"`, so tracebacks are never rendered in
+the browser: a stack frame can carry a dataframe, and a dataframe carries
+positions. That is the right trade for a financial app, but it does mean an
+unhandled error looks like nothing at all.
+
+The detail is in the server log, not the page. On Streamlit Cloud: **Manage app
+→ Logs**, bottom right of the deployed app. Locally, it is on the terminal
+running Streamlit.
+
+Note the difference between a blank page and a short message such as "The
+application will not start" or "no configuration found". Those are deliberate,
+and mean the app is working correctly and telling you what it needs.

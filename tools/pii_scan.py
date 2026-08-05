@@ -296,7 +296,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--staged", action="store_true", help="scan staged files")
     parser.add_argument("--tree", action="store_true", help="scan all tracked files")
     parser.add_argument("--commit-msg", metavar="FILE", help="scan a commit message file")
-    parser.add_argument("--log", metavar="REVSPEC", help="scan commit messages in a range")
+    # nargs="?" so a bare `--log` means every commit. Without it, `--log` with
+    # no value is an argparse error, which in a CI step reads as a scan that
+    # ran and found nothing.
+    parser.add_argument(
+        "--log",
+        nargs="?",
+        const="--all",
+        metavar="REVSPEC",
+        help="scan commit messages in a range, or every commit if given no value",
+    )
     parser.add_argument("--all", action="store_true", help="scan the tree and the whole log")
     args = parser.parse_args(argv)
 
@@ -314,7 +323,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.tree or args.all:
         findings += scan_tree(rules)
         contexts.append("tracked files")
-    if args.log or args.all:
+    if args.log is not None or args.all:
         findings += scan_commit_messages(args.log or "--all", rules)
         contexts.append("commit messages")
 
