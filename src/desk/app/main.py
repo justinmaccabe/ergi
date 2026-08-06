@@ -337,12 +337,136 @@ def _allocation(
             }
         ],
     )
-    st.markdown("##### Allocation by market value")
-    st.plotly_chart(fig, use_container_width=True)
+    chart, gains = st.columns([1, 1])
+    with chart:
+        st.markdown("##### Allocation by market value")
+        st.plotly_chart(fig, use_container_width=True)
+    with gains:
+        st.markdown("##### Gain / loss by holding")
+        ranked = sorted(priced, key=lambda v: v.gain_base or 0.0)
+        bars = go.Figure(
+            go.Bar(
+                x=[v.gain_base for v in ranked],
+                y=[v.position.ticker for v in ranked],
+                orientation="h",
+                marker={
+                    "color": [
+                        b.positive if (v.gain_base or 0.0) >= 0 else b.negative
+                        for v in ranked
+                    ]
+                },
+                hovertemplate="%{y}: %{x:,.0f} " + ccy + "<extra></extra>",
+            )
+        )
+        bars.update_layout(
+            height=340,
+            margin={"l": 8, "r": 8, "t": 8, "b": 8},
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font={"family": b.serif, "color": "#DED8CE"},
+            xaxis={"gridcolor": GRID_COLOUR, "tickformat": ",.0f", "title": ccy},
+            yaxis={"showgrid": False},
+        )
+        st.plotly_chart(bars, use_container_width=True)
     if coverage < 0.999:
         st.markdown(
             f'<p class="note">{coverage:.0%} of book value carried a live price; '
             "unpriced holdings are left out of the chart rather than shown at cost.</p>",
+            unsafe_allow_html=True,
+        )
+
+    _attribution_report(cfg, valued, fx)
+
+
+def _attribution_report(
+    cfg: PortfolioConfig, valued: Sequence[Any], fx: Mapping[str, float]
+) -> None:
+    """Where the gain came from: per holding, and price versus currency."""
+    from desk.analytics.valuation import attribution
+
+    ccy = cfg.locale.base_currency
+    report = attribution(valued, fx)
+    if not report.rows or report.total_book <= 0:
+        return
+
+    with st.expander("Attribution report", expanded=False):
+        a, b_col, c = st.columns(3)
+        a.metric(
+            "Total unrealized",
+            f"{report.total_gain:,.0f} {ccy}",
+            delta=f"{report.total_return:.2%}" if report.total_return else None,
+        )
+        b_col.metric("From prices", f"{report.price_gain:,.0f} {ccy}")
+        c.metric("From currency", f"{report.fx_gain:,.0f} {ccy}")
+
+        frame = pd.DataFrame(
+            [
+                {
+                    "Ticker": r.ticker,
+                    "Cur": r.currency,
+                    "Units": round(r.quantity, 4),
+                    f"ACB ({ccy})": round(r.acb_base, 4),
+                    "Price": None if r.price_native is None else round(r.price_native, 4),
+                    f"Book ({ccy})": round(r.book_value_base, 2),
+                    f"Market ({ccy})": (
+                        None
+                        if r.market_value_base is None
+                        else round(r.market_value_base, 2)
+                    ),
+                    f"Gain ({ccy})": None if r.gain_base is None else round(r.gain_base, 2),
+                    "Return": r.return_pct,
+                    "Weight": r.weight,
+                    "Contribution": r.contribution,
+                }
+                for r in report.rows
+            ]
+        )
+        st.dataframe(
+            frame,
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "Return": st.column_config.NumberColumn(format="percent"),
+                "Weight": st.column_config.NumberColumn(format="percent"),
+                "Contribution": st.column_config.NumberColumn(format="percent"),
+            },
+        )
+
+        best = report.winners[0] if report.winners else None
+        worst = report.losers[-1] if report.losers else None
+        lines: list[str] = []
+        if best is not None and best.gain_base is not None:
+            lines.append(
+                f"<strong>{best.ticker}</strong> contributed most, "
+                f"{best.gain_base:,.0f} {ccy} "
+                f"({(best.contribution or 0.0):+.2%} of the portfolio's return)"
+            )
+        if worst is not None and worst.gain_base is not None:
+            lines.append(
+                f"<strong>{worst.ticker}</strong> detracted most, "
+                f"{worst.gain_base:,.0f} {ccy} "
+                f"({(worst.contribution or 0.0):+.2%})"
+            )
+        if abs(report.fx_gain) > 0.005 * max(abs(report.total_gain), 1.0):
+            share = report.fx_gain / report.total_gain if report.total_gain else 0.0
+            lines.append(
+                f"the exchange rate accounts for {report.fx_gain:,.0f} {ccy} "
+                f"of the gain ({share:.0%}), separate from what the securities did"
+            )
+        if report.unpriced:
+            lines.append(
+                "excluded for want of a price: " + ", ".join(report.unpriced)
+            )
+        if lines:
+            st.markdown(
+                '<p class="note">' + ". ".join(lines).capitalize() + ".</p>",
+                unsafe_allow_html=True,
+            )
+        st.markdown(
+            '<p class="note">Contribution is each holding\'s gain over the '
+            "portfolio's total cost, so the column sums to the portfolio return. "
+            "Gain is market value less adjusted cost base, with cost frozen at the "
+            "exchange rate on the trade date and market value at today's.</p>",
             unsafe_allow_html=True,
         )
 
