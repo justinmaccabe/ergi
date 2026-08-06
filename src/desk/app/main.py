@@ -11,7 +11,7 @@ name. Nothing identifying is hardcoded anywhere in this package.
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import pandas as pd
@@ -20,7 +20,7 @@ import streamlit as st
 from desk.analytics.positions import aggregate_by_ticker, build_ledger
 from desk.config.loader import ConfigError, load
 from desk.config.schema import PortfolioConfig
-from desk.domain.types import LedgerResult
+from desk.domain.types import LedgerResult, Position
 from desk.services import demo as demo_service
 from desk.settings import AuthMode, Settings, SettingsError, get_settings
 
@@ -198,12 +198,7 @@ def _overview(
             note += " · " + " · ".join(f"{amt:,.2f} {cur}" for cur, amt in other)
         st.caption(note)
 
-    st.markdown(
-        '<p class="note">Market value needs a price feed, which arrives with the '
-        "provider layer. Every figure below comes from the ledger alone, so it is "
-        "exact rather than estimated.</p>",
-        unsafe_allow_html=True,
-    )
+    _allocation(cfg, result, rolled)
 
     frame = pd.DataFrame(
         [
@@ -250,6 +245,106 @@ def _overview(
         "columns, so adding an account is configuration rather than a code change.</p>",
         unsafe_allow_html=True,
     )
+
+
+def _allocation(
+    cfg: PortfolioConfig, result: LedgerResult, rolled: Sequence[Position]
+) -> None:
+    """Allocation by market value, with the unrealized gain the marks imply.
+
+    Falls back to a book-value note when no price arrives, rather than drawing a
+    pie of cost basis and labelling it market value.
+    """
+    import plotly.graph_objects as go
+
+    from desk.analytics.valuation import (
+        portfolio_market_value,
+        priced_coverage,
+        value_positions,
+    )
+
+    ccy = cfg.locale.base_currency
+    symbols, currencies = _instrument_maps(cfg, result)
+    if not symbols:
+        st.markdown(
+            '<p class="note">No quotable holdings, so market value is unavailable. '
+            "Figures below come from the ledger alone.</p>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    try:
+        prices, fx = _cached_marks(
+            tuple(symbols.values()), tuple({*currencies.values(), ccy}), ccy
+        )
+    except Exception:
+        prices, fx = {}, {}
+    by_ticker = {t: prices.get(sym) for t, sym in symbols.items()}
+    valued = value_positions(rolled, by_ticker, fx)
+    priced = [v for v in valued if v.market_value_base is not None]
+    if not priced:
+        st.markdown(
+            '<p class="note">Prices are unavailable right now, so the figures below '
+            "come from the ledger alone.</p>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    market_value = portfolio_market_value(valued)
+    book = sum(v.position.book_value_base for v in priced)
+    gain = market_value - book
+    coverage = priced_coverage(valued)
+
+    a, b_col, c = st.columns(3)
+    a.metric("Market value", f"{market_value:,.0f} {ccy}")
+    b_col.metric(
+        "Unrealized gain",
+        f"{gain:,.0f} {ccy}",
+        delta=f"{(gain / book):.2%}" if book else None,
+    )
+    c.metric("Priced", f"{coverage:.0%} of book")
+
+    b = cfg.branding
+    ordered = sorted(priced, key=lambda v: v.market_value_base or 0.0, reverse=True)
+    palette = list(b.categorical) or [b.primary, b.accent]
+    fig = go.Figure(
+        go.Pie(
+            labels=[v.position.ticker for v in ordered],
+            values=[v.market_value_base for v in ordered],
+            hole=0.62,
+            sort=False,
+            marker={
+                "colors": [palette[i % len(palette)] for i in range(len(ordered))],
+                "line": {"color": "#221C20", "width": 1},
+            },
+            textinfo="label+percent",
+            textfont={"family": b.serif, "size": 12},
+            hovertemplate="%{label}: %{value:,.0f} " + ccy + " (%{percent})<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        height=340,
+        margin={"l": 8, "r": 8, "t": 8, "b": 8},
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font={"family": b.serif, "color": "#DED8CE"},
+        showlegend=False,
+        annotations=[
+            {
+                "text": f"{market_value:,.0f}<br><span style='font-size:0.7em'>{ccy}</span>",
+                "x": 0.5, "y": 0.5, "showarrow": False,
+                "font": {"family": b.serif, "size": 17, "color": "#DED8CE"},
+            }
+        ],
+    )
+    st.markdown("##### Allocation by market value")
+    st.plotly_chart(fig, use_container_width=True)
+    if coverage < 0.999:
+        st.markdown(
+            f'<p class="note">{coverage:.0%} of book value carried a live price; '
+            "unpriced holdings are left out of the chart rather than shown at cost.</p>",
+            unsafe_allow_html=True,
+        )
 
 
 # ---------------------------------------------------------------- market data
@@ -329,17 +424,31 @@ def _performance(cfg: PortfolioConfig, db_url: str | None) -> None:
     closes = snaps[snaps["slot"] == "close"]
     series = closes if not closes.empty else snaps
     labels = [d.strftime("%b %d") for d in pd.to_datetime(series["date"])]
+    ccy = cfg.locale.base_currency
+    # One recorded point draws an invisible line, so markers carry the series
+    # until there is a history to join up.
+    sparse = len(series) < 2
+    mode = "markers" if sparse else "lines+markers"
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
-            x=labels, y=series["market_value"], mode="lines+markers",
-            name="Market value", line={"color": b.primary, "width": 2},
+            x=labels, y=series["market_value"], mode=mode, name="Market value",
+            line={"color": b.primary, "width": 2},
+            marker={"color": b.primary, "size": 10 if sparse else 7},
+            hovertemplate="%{x}: %{y:,.0f} " + ccy + "<extra>Market value</extra>",
         )
     )
     fig.add_trace(
         go.Scatter(
-            x=labels, y=series["book_value"], mode="lines", name="Book value",
-            line={"color": b.accent, "width": 1.4, "dash": "dot", "shape": "hv"},
+            x=labels, y=series["book_value"],
+            mode="markers" if sparse else "lines+markers", name="Book value",
+            line={"color": b.accent, "width": 1.6, "dash": "dot", "shape": "hv"},
+            marker={
+                "color": b.accent,
+                "size": 10 if sparse else 6,
+                "symbol": "diamond",
+            },
+            hovertemplate="%{x}: %{y:,.0f} " + ccy + "<extra>Book value</extra>",
         )
     )
     fig.update_layout(
@@ -347,12 +456,19 @@ def _performance(cfg: PortfolioConfig, db_url: str | None) -> None:
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         font={"family": b.serif, "color": "#DED8CE"},
         xaxis={"type": "category", "showgrid": False},
-        yaxis={"gridcolor": GRID_COLOUR, "tickformat": ",.0f"},
+        yaxis={"gridcolor": GRID_COLOUR, "tickformat": ",.0f", "title": ccy},
         legend={"orientation": "h", "y": 1.12, "x": 0},
     )
     st.plotly_chart(fig, use_container_width=True)
+    if sparse:
+        st.markdown(
+            '<p class="note">One recorded point so far, shown as markers — the gap '
+            "between them is the unrealized gain. Press <em>Fetch prices</em> again "
+            "on later days and the lines join up into a history.</p>",
+            unsafe_allow_html=True,
+        )
 
-    _open_close_table(snaps, cfg.locale.base_currency)
+    _open_close_table(snaps, ccy)
 
 
 def _record_now(cfg: PortfolioConfig, db_url: str) -> None:
