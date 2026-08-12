@@ -31,8 +31,14 @@ Confirm it works on your machine before involving any hosting.
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -e '.[dev,app,prices]'
+.venv/bin/pip install -e '.[dev,app,prices,postgres]'
 ```
+
+Include `postgres` even though step 3 is the first thing that needs it. Without
+it the PostgreSQL driver is missing, and the failure arrives later as
+`ModuleNotFoundError: No module named 'psycopg'` from inside `create_engine` —
+which reads like a broken connection string rather than a missing dependency,
+because SQLAlchemy resolves the driver before it ever opens a socket.
 
 ```bash
 .venv/bin/desk demo

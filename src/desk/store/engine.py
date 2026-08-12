@@ -37,7 +37,22 @@ def build_engine(url: str, *, echo: bool = False) -> Engine:
             "in a hosted deployment that would look like losing your history."
         )
     normalised = normalise_url(url)
-    engine = create_engine(normalised, echo=echo, future=True, pool_pre_ping=True)
+    try:
+        engine = create_engine(normalised, echo=echo, future=True, pool_pre_ping=True)
+    except ModuleNotFoundError as exc:
+        # SQLAlchemy imports the DBAPI while constructing the engine, before it
+        # opens a socket. A missing driver therefore surfaces as a bare
+        # ModuleNotFoundError several frames deep, next to the connection string
+        # — which reads as "my database URL is wrong" rather than "I am missing a
+        # dependency". Name the actual fix instead.
+        extra = "postgres" if normalised.startswith("postgresql") else None
+        if extra is None:
+            raise
+        raise ModuleNotFoundError(
+            f"the PostgreSQL driver is not installed ({exc.name} is missing), so this "
+            f"URL cannot be used. The connection string is not the problem.\n"
+            f"  Install it with:  pip install -e '.[{extra}]'"
+        ) from exc
 
     if normalised.startswith("sqlite"):
         # WAL for concurrent reads while the snapshot job writes; foreign keys

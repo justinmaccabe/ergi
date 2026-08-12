@@ -32,7 +32,7 @@ Install the package first — the `desk` command and the `desk.*` imports both
 depend on it:
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -e '.[dev,app,prices]'
+python3 -m venv .venv && .venv/bin/pip install -e '.[dev,app,prices,postgres]'
 ```
 
 Then look around with synthetic data. No configuration and no secrets needed:
