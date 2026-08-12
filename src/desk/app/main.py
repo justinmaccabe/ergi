@@ -669,6 +669,15 @@ def _open_close_table(snaps: pd.DataFrame, ccy: str) -> None:
 
 
 def _analytics(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
+    """Analytics views, grouped so the tab strip stays readable."""
+    correlations, factors = st.tabs(["Correlations", "Factor Exposure"])
+    with correlations:
+        _correlations(cfg, result)
+    with factors:
+        _factor_exposure(cfg, result)
+
+
+def _correlations(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
     """Correlation of monthly returns across held positions."""
     import plotly.graph_objects as go
 
@@ -725,6 +734,198 @@ def _analytics(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
         "share. Darker is more diversifying.</p>",
         unsafe_allow_html=True,
     )
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _cached_exposure(
+    symbols: tuple[tuple[str, str], ...],
+    currencies: tuple[tuple[str, str], ...],
+    weights: tuple[tuple[str, float], ...],
+    provider_name: str,
+    cache_dir: str,
+    eligible: tuple[str, ...],
+) -> object:
+    from desk.services.factors import exposure
+
+    return exposure(
+        dict(symbols),
+        dict(currencies),
+        dict(weights),
+        provider_name=provider_name,
+        cache_dir=cache_dir or None,
+        eligible=set(eligible),
+    )
+
+
+def _factor_exposure(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
+    """Fama-French five-factor plus momentum loadings, weighted by market value."""
+    import plotly.graph_objects as go
+
+    from desk.analytics.factors import (
+        FactorExposure,
+        annualised_alpha,
+        blended_r_squared,
+        factor_names,
+        summarise,
+        tilt_summary,
+    )
+    from desk.services.factors import factor_eligible
+
+    st.subheader("Factor exposure")
+    if result is None or not result.positions:
+        st.markdown('<p class="note">No positions yet.</p>', unsafe_allow_html=True)
+        return
+    if cfg.data.factor_provider == "none":
+        st.markdown(
+            '<p class="note">No factor provider configured. Set '
+            "<code>data.factor_provider: kenfrench</code> in your config.</p>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    symbols, currencies = _instrument_maps(cfg, result)
+    if not symbols:
+        st.markdown('<p class="note">No quotable holdings.</p>', unsafe_allow_html=True)
+        return
+
+    # Weights are market value where a price arrived and book value otherwise, so
+    # the denominator is the whole portfolio. Weighting by book alone would let a
+    # holding that has doubled count as its cost.
+    weights = _exposure_weights(cfg, result, symbols, currencies)
+    # Holdings labelled as something other than equity are kept out of the
+    # regression but keep their weight, so they show up as unattributed.
+    eligible = factor_eligible(cfg.instruments, list(symbols))
+    with st.spinner("Fetching factor returns and price history…"):
+        exposure = _cached_exposure(
+            tuple(symbols.items()),
+            tuple(currencies.items()),
+            tuple(sorted(weights.items())),
+            cfg.data.factor_provider,
+            cfg.data.cache_dir,
+            tuple(sorted(eligible)),
+        )
+    if exposure is None or not isinstance(exposure, FactorExposure) or exposure.is_empty:
+        st.markdown(
+            '<p class="note">Factor data is unavailable right now — either the '
+            "Dartmouth data library could not be reached, or no holding has the "
+            "two years of overlapping monthly history the regression needs. "
+            "No loadings are shown rather than unreliable ones.</p>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    b = cfg.branding
+    loadings = [exposure.portfolio[f] for f in exposure.factors]
+    fig = go.Figure(
+        go.Bar(
+            x=list(exposure.factors),
+            y=loadings,
+            marker_color=[b.positive if v >= 0 else b.negative for v in loadings],
+            text=[f"{v:+.2f}" for v in loadings],
+            textposition="outside",
+            hovertemplate="%{x}: %{y:+.3f}<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        height=380,
+        margin={"l": 8, "r": 8, "t": 20, "b": 8},
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font={"family": b.serif, "color": "#DED8CE"},
+        xaxis={"showgrid": False},
+        yaxis={"gridcolor": GRID_COLOUR, "title": "Loading (beta)", "zerolinecolor": "#5A4A50"},
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    tilts = tilt_summary(exposure)
+    if tilts:
+        st.markdown(
+            f'<p class="note">Read as: the book is {"; ".join(tilts)}.</p>',
+            unsafe_allow_html=True,
+        )
+
+    a, bb, c = st.columns(3)
+    r2 = blended_r_squared(exposure)
+    alpha = annualised_alpha(exposure)
+    a.metric("Explained variation", "—" if r2 is None else f"{r2:.0%}")
+    bb.metric("Annualised alpha", "—" if alpha is None else f"{alpha:+.2%}")
+    c.metric("Holdings fitted", f"{len(exposure.fits)}")
+
+    if exposure.unattributed > 0.001:
+        excluded = ", ".join(exposure.excluded)
+        st.markdown(
+            f'<p class="note">{exposure.unattributed:.0%} of the portfolio carries no '
+            f"loading and is excluded from the figures above rather than spread across "
+            f"the rest: <strong>{excluded}</strong>. A holding is excluded when it has "
+            f"no return history, less than two years of overlap with the factor window, "
+            f"or no exchange-rate series to convert it into the factors' currency.</p>",
+            unsafe_allow_html=True,
+        )
+
+    frame = summarise(exposure)
+    st.dataframe(
+        frame,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Weight": st.column_config.NumberColumn(format="%.1f%%"),
+            "R²": st.column_config.NumberColumn(format="%.2f"),
+            "Alpha (monthly)": st.column_config.NumberColumn(format="%.2f%%"),
+            **{
+                f: st.column_config.NumberColumn(format="%.2f")
+                for f in exposure.factors
+            },
+        },
+    )
+
+    window = exposure.window
+    span = f"{window[0]} to {window[1]}" if window else "the available window"
+    with st.expander("What these factors mean"):
+        for name, meaning in factor_names().items():
+            st.markdown(f"**{name}** — {meaning}")
+    st.markdown(
+        f'<p class="note">Monthly regressions over {span}, against the developed-markets '
+        f"Fama-French five-factor set plus momentum. Every holding's price series is "
+        f"converted into US dollars first, because the factors are USD-denominated — "
+        f"skipping that step loads the {cfg.locale.base_currency}/USD move onto the "
+        f"market beta and makes an index tracker look defensive. R² says how much of "
+        f"each holding's movement the model explains at all; a low value means the "
+        f"loadings beside it describe only a small part of what happened.</p>",
+        unsafe_allow_html=True,
+    )
+
+
+def _exposure_weights(
+    cfg: PortfolioConfig,
+    result: LedgerResult,
+    symbols: dict[str, str],
+    currencies: dict[str, str],
+) -> dict[str, float]:
+    """Market value per ticker, falling back to book value when unpriced.
+
+    Covers every held ticker, not just the quotable ones, so the unattributed
+    share the factor model reports is measured against the whole portfolio.
+    """
+    from desk.analytics.positions import aggregate_by_ticker
+
+    rolled = aggregate_by_ticker(result.positions)
+    book = {p.ticker: p.book_value_base for p in rolled}
+    ccy = cfg.locale.base_currency
+    try:
+        prices, fx = _cached_marks(
+            tuple(symbols.values()), tuple({*currencies.values(), ccy}), ccy
+        )
+    except Exception:
+        return book
+    weights: dict[str, float] = {}
+    for p in rolled:
+        symbol = symbols.get(p.ticker)
+        price = prices.get(symbol) if symbol else None
+        rate = fx.get(p.currency, 1.0)
+        weights[p.ticker] = (
+            p.quantity * price * rate if price is not None else book[p.ticker]
+        )
+    return weights
 
 
 def _risk(cfg: PortfolioConfig, result: LedgerResult | None) -> None:

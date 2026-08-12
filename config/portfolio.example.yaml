@@ -59,6 +59,13 @@ instruments: []
 # instruments:
 #   - {ticker: EXMP, symbol: EXMP.TO, currency: CAD, kind: etf}
 #   - {ticker: PRIV, currency: CAD, kind: private}
+#
+# `asset_class` is optional and defaults to equity. Set it on anything that is
+# not equity — a commodity, bullion or digital-asset fund — and the Factor
+# Exposure tab will leave it out of the Fama-French regression and report its
+# weight as unattributed. An equity-factor model fitted to bitcoin returns
+# coefficients that are arithmetically correct and financially meaningless.
+#   - {ticker: COIN, symbol: COIN.TO, currency: CAD, kind: etf, asset_class: digital_asset}
 
 # `daily` is the "how did the market do today" comparator.
 # `risk` is the regression benchmark for beta, alpha and capture.
