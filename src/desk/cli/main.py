@@ -415,6 +415,74 @@ def fetch_prices(
         )
 
 
+@app.command("build-lookthrough")
+def build_lookthrough(
+    manifest: str = typer.Option(
+        "inbox/lookthrough.yaml", "--manifest", "-m", help="manifest describing each fund"
+    ),
+    source_dir: str = typer.Option(
+        "inbox", "--source-dir", "-s", help="directory holding the downloaded files"
+    ),
+    out: str = typer.Option(
+        "data/lookthrough/composition.json.gz", "--out", "-o", help="where to write the dataset"
+    ),
+    as_of: str = typer.Option(
+        None, "--as-of", help="composition date (YYYY-MM-DD); defaults to today"
+    ),
+) -> None:
+    """Normalise downloaded fund-holdings files into the look-through dataset.
+
+    Source files stay in `inbox/`, which is gitignored — a holdings file for a
+    fund you own is itself a disclosure of what you own. Only the normalised
+    output is committed, and it contains fund compositions only: no position, no
+    balance, nothing about who holds it.
+
+    Run `desk build-lookthrough --template` output into a manifest first if you
+    have not written one.
+    """
+    from pathlib import Path
+
+    from desk.intake.lookthrough import IntakeError, build, describe, read, specs_from_yaml, write
+
+    manifest_path = Path(manifest)
+    if not manifest_path.exists():
+        console.print(f"[red]no manifest at {manifest_path}.")
+        console.print(
+            "\nWrite one describing each fund and the file its holdings came from. "
+            "See [bold]docs/lookthrough.md[/bold] for the format and where to download each file."
+        )
+        raise typer.Exit(1)
+
+    when = dt.date.fromisoformat(as_of) if as_of else dt.date.today()
+    try:
+        specs = specs_from_yaml(manifest_path.read_text(encoding="utf-8"))
+        compositions = build(specs, Path(source_dir), as_of=when)
+    except IntakeError as exc:
+        console.print(f"[red]{exc}")
+        raise typer.Exit(1) from exc
+
+    out_path = Path(out)
+    write(compositions, out_path)
+    for line in describe(compositions):
+        console.print(f"  {line}")
+
+    resolved = [c for c in compositions if c.resolves_to_securities]
+    console.print(
+        f"\n[green]wrote {out_path}[/green] — {len(resolved)} of {len(compositions)} "
+        f"funds resolved to securities, as of {when}."
+    )
+    if len(resolved) < len(compositions):
+        unresolved = ", ".join(c.ticker for c in compositions if not c.resolves_to_securities)
+        console.print(
+            f"[dim]{unresolved} hold no securities to look through; the X-Ray tab reports "
+            "them by name rather than omitting them."
+        )
+    # Prove the file round-trips before anyone relies on it in the dashboard.
+    if len(read(out_path)) != len(compositions):
+        console.print("[red]the written file did not read back correctly.")
+        raise typer.Exit(1)
+
+
 @app.command("push-config")
 def push_config(
     db: str = typer.Option(..., "--db", help="database URL to write the config into"),

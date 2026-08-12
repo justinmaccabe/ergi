@@ -670,11 +670,15 @@ def _open_close_table(snaps: pd.DataFrame, ccy: str) -> None:
 
 def _analytics(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
     """Analytics views, grouped so the tab strip stays readable."""
-    correlations, factors = st.tabs(["Correlations", "Factor Exposure"])
+    correlations, factors, xray = st.tabs(
+        ["Correlations", "Factor Exposure", "Holdings X-Ray"]
+    )
     with correlations:
         _correlations(cfg, result)
     with factors:
         _factor_exposure(cfg, result)
+    with xray:
+        _holdings_xray(cfg, result)
 
 
 def _correlations(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
@@ -734,6 +738,326 @@ def _correlations(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
         "share. Darker is more diversifying.</p>",
         unsafe_allow_html=True,
     )
+
+
+COMPOSITION_PATH = "data/lookthrough/composition.json.gz"
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _cached_compositions(path: str) -> object:
+    from pathlib import Path
+
+    from desk.intake.lookthrough import read
+
+    return read(Path(path))
+
+
+def _holdings_xray(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
+    """Every fund resolved to the companies inside it, with overlap made visible."""
+    import plotly.graph_objects as go
+
+    from desk.analytics.lookthrough import companies_frame, look_through, overlap_table
+
+    st.subheader("Holdings X-Ray")
+    if result is None or not result.positions:
+        st.markdown('<p class="note">No positions yet.</p>', unsafe_allow_html=True)
+        return
+
+    compositions = _cached_compositions(COMPOSITION_PATH)
+    if not compositions or not isinstance(compositions, tuple):
+        st.markdown(
+            '<p class="note">No composition data yet. Download each fund\'s published '
+            "holdings file into <code>inbox/</code>, describe them in a manifest "
+            "(copy <code>data/lookthrough/manifest.example.yaml</code>), then run "
+            "<code>desk build-lookthrough</code>. See <code>docs/lookthrough.md</code>.</p>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    symbols, currencies = _instrument_maps(cfg, result)
+    weights = _exposure_weights(cfg, result, symbols, currencies)
+    report = look_through(weights, compositions)
+    if report.total <= 0:
+        st.markdown('<p class="note">Nothing to value.</p>', unsafe_allow_html=True)
+        return
+
+    ccy = cfg.locale.base_currency
+    b = cfg.branding
+
+    # Coverage first, before any chart. Every percentage below is a share of the
+    # resolved sleeve, and the reader needs to know how big that sleeve is before
+    # reading them.
+    if report.coverage < 0.999:
+        rows = " · ".join(
+            f"<strong>{t}</strong> {v:,.0f} {ccy} ({why})"
+            for t, (v, why) in sorted(report.unresolved.items(), key=lambda kv: -kv[1][0])
+        )
+        st.markdown(
+            f'<p class="note">Security detail covers <strong>{report.coverage:.0%}</strong> '
+            f"of the portfolio. The rest holds no securities to resolve and is excluded "
+            f"from the company, sector and concentration figures below rather than "
+            f"diluted into them: {rows}.</p>",
+            unsafe_allow_html=True,
+        )
+
+    if report.is_empty:
+        st.markdown(
+            '<p class="note">No fund in the portfolio resolves to individual '
+            "securities, so there is nothing to X-ray.</p>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    s = report.stats
+    top = report.companies[0]
+    a, bb, c, d = st.columns(4)
+    a.metric(
+        f"Largest company ({top.ticker})",
+        f"{top.weight:.2%}",
+        help=f"{top.total:,.0f} {ccy}, arriving through {top.funds} "
+        f"{'fund' if top.funds == 1 else 'separate funds'}.",
+    )
+    bb.metric("Top 10 companies", f"{s.top10:.1%}")
+    c.metric("Distinct securities", f"{s.distinct:,}")
+    d.metric(
+        "Held via 3+ funds",
+        f"{s.overlap_3plus:.1%}",
+        help="Share of the portfolio sitting in companies delivered by three or more "
+        "of your funds at once. This is the concentration a fund-level allocation "
+        "chart cannot show.",
+    )
+
+    st.markdown(
+        f'<p class="note">You hold <strong>{s.distinct:,} distinct securities</strong> '
+        f"through {len([x for x in compositions if x.resolves_to_securities])} funds. "
+        f"The ten largest are <strong>{s.top10:.0%}</strong> of the book, and "
+        f"<strong>{s.overlap_3plus:.0%}</strong> sits in names carried by three or more "
+        f"funds simultaneously. None of it was bought directly.</p>",
+        unsafe_allow_html=True,
+    )
+
+    resolved_funds = [x.ticker for x in compositions if x.resolves_to_securities]
+    palette = list(cfg.branding.categorical) or [b.primary, b.accent]
+    colours = {f: palette[i % len(palette)] for i, f in enumerate(sorted(resolved_funds))}
+
+    # ---- where each company comes from -----------------------------------
+    st.markdown("##### Where each company comes from")
+    count = st.slider("Companies shown", 5, 40, 15, step=5, label_visibility="collapsed")
+    head = list(report.companies[:count])[::-1]
+    fig = go.Figure()
+    for fund in sorted(resolved_funds):
+        values = [c.by_fund.get(fund, 0.0) for c in head]
+        if not any(values):
+            continue
+        fig.add_bar(
+            y=[c.ticker for c in head],
+            x=values,
+            name=fund,
+            orientation="h",
+            marker_color=colours[fund],
+            hovertemplate="%{y} · " + fund + ": %{x:,.0f} " + ccy + "<extra></extra>",
+        )
+    fig.update_layout(
+        barmode="stack",
+        height=max(320, 26 * count),
+        margin={"l": 8, "r": 8, "t": 8, "b": 8},
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font={"family": b.serif, "color": "#DED8CE"},
+        xaxis={"gridcolor": GRID_COLOUR, "tickformat": ",.0f", "title": ccy},
+        yaxis={"showgrid": False},
+        legend={"orientation": "h", "y": 1.04, "x": 0},
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    st.markdown(
+        '<p class="note">Bar length is total exposure to that company across every '
+        "fund you own. A bar in several colours is one company you are buying more "
+        "than once.</p>",
+        unsafe_allow_html=True,
+    )
+
+    # ---- rollups ---------------------------------------------------------
+    left, right = st.columns(2)
+    with left:
+        st.markdown("##### By region")
+        _donut(cfg, report.region, ccy)
+    with right:
+        st.markdown("##### By sector")
+        _sector_bars(cfg, report.sector)
+    st.markdown(
+        f'<p class="note">Region covers every holding whose contents carry a country, '
+        f"including the synthetic sleeve. Sector covers the "
+        f"{report.sector_base:,.0f} {ccy} equity sleeve of funds publishing "
+        f"per-security sectors.</p>",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("##### By asset class")
+    _asset_bar(cfg, report.asset)
+
+    # ---- overlap detail --------------------------------------------------
+    overlap = overlap_table(report, minimum=2)
+    if not overlap.empty:
+        st.markdown("##### Companies you own more than once")
+        st.dataframe(
+            overlap,
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "Total": st.column_config.NumberColumn(format="%.0f"),
+                "Weight": st.column_config.NumberColumn(format="%.2f%%"),
+                "Funds": st.column_config.NumberColumn(format="%d"),
+            },
+        )
+        st.markdown(
+            f'<p class="note">{len(overlap):,} companies arrive through more than one '
+            f"fund. Buying the same name twice is not diversification, and at the fund "
+            f"level it is invisible.</p>",
+            unsafe_allow_html=True,
+        )
+
+    # ---- full table ------------------------------------------------------
+    with st.expander(f"Every company ({s.distinct:,})"):
+        frame = companies_frame(report, sorted(resolved_funds), limit=250)
+        st.dataframe(
+            frame,
+            width="stretch",
+            hide_index=True,
+            height=420,
+            column_config={
+                "Weight": st.column_config.NumberColumn(format="%.3f%%"),
+                "Total": st.column_config.NumberColumn(format="%.0f"),
+                "Funds": st.column_config.NumberColumn(format="%d"),
+                **{
+                    f: st.column_config.NumberColumn(format="%.0f")
+                    for f in sorted(resolved_funds)
+                },
+            },
+        )
+        st.markdown(
+            f'<p class="note">Top 250 of {s.distinct:,}. {s.tail_count:,} holdings are '
+            f"worth under 10 {ccy} each, {s.tail_value:,.0f} {ccy} in total.</p>",
+            unsafe_allow_html=True,
+        )
+
+    stamp = report.as_of.strftime("%d %B %Y") if report.as_of else "an unrecorded date"
+    st.markdown(
+        f'<p class="note">Compositions are the funds\' published holdings as of '
+        f"<strong>{stamp}</strong>, weighted by your live market values. The date is the "
+        f"oldest of the files in play, not the newest — a blended figure is only as "
+        f"current as its stalest input. Refresh with <code>desk build-lookthrough</code>.</p>",
+        unsafe_allow_html=True,
+    )
+
+
+def _donut(cfg: PortfolioConfig, shares: Mapping[str, float], ccy: str) -> None:
+    """A donut of fractional shares, largest first."""
+    import plotly.graph_objects as go
+
+    items = sorted(((k, v) for k, v in shares.items() if v > 0), key=lambda kv: -kv[1])
+    if not items:
+        st.markdown('<p class="note">Not available.</p>', unsafe_allow_html=True)
+        return
+    b = cfg.branding
+    palette = list(b.categorical) or [b.primary, b.accent]
+    fig = go.Figure(
+        go.Pie(
+            labels=[k for k, _ in items],
+            values=[v for _, v in items],
+            hole=0.62,
+            marker={"colors": [palette[i % len(palette)] for i in range(len(items))]},
+            textinfo="label+percent",
+            hovertemplate="%{label}: %{percent}<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        height=340,
+        margin={"l": 8, "r": 8, "t": 8, "b": 8},
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font={"family": b.serif, "color": "#DED8CE"},
+        showlegend=False,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def _sector_bars(cfg: PortfolioConfig, shares: Mapping[str, float]) -> None:
+    import plotly.graph_objects as go
+
+    items = sorted(((k, v) for k, v in shares.items() if v > 0), key=lambda kv: kv[1])
+    if not items:
+        st.markdown(
+            '<p class="note">No fund publishes per-security sectors.</p>',
+            unsafe_allow_html=True,
+        )
+        return
+    b = cfg.branding
+    fig = go.Figure(
+        go.Bar(
+            x=[v for _, v in items],
+            y=[k for k, _ in items],
+            orientation="h",
+            marker_color=b.accent,
+            text=[f"{v:.1%}" for _, v in items],
+            textposition="outside",
+            cliponaxis=False,
+            hovertemplate="%{y}: %{x:.2%}<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        height=340,
+        margin={"l": 8, "r": 8, "t": 8, "b": 8},
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font={"family": b.serif, "color": "#DED8CE"},
+        xaxis={"gridcolor": GRID_COLOUR, "tickformat": ".0%"},
+        yaxis={"showgrid": False},
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def _asset_bar(cfg: PortfolioConfig, shares: Mapping[str, float]) -> None:
+    """One stacked bar of the asset mix."""
+    import plotly.graph_objects as go
+
+    order = (
+        "Public equity",
+        "Synthetic index exposure",
+        "Digital assets",
+        "Commodities",
+        "Bonds",
+        "Private markets",
+        "Cash",
+        "Other",
+    )
+    items = [(k, shares[k]) for k in order if shares.get(k, 0.0) > 0]
+    items += [(k, v) for k, v in shares.items() if k not in order and v > 0]
+    if not items:
+        return
+    b = cfg.branding
+    palette = list(b.categorical) or [b.primary, b.accent]
+    fig = go.Figure()
+    for index, (label, value) in enumerate(items):
+        fig.add_bar(
+            x=[value],
+            y=["mix"],
+            name=label,
+            orientation="h",
+            marker_color=palette[index % len(palette)],
+            hovertemplate=f"{label}: %{{x:.2%}}<extra></extra>",
+        )
+    fig.update_layout(
+        barmode="stack",
+        height=150,
+        margin={"l": 8, "r": 8, "t": 8, "b": 8},
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font={"family": b.serif, "color": "#DED8CE"},
+        xaxis={"tickformat": ".0%", "range": [0, 1], "gridcolor": GRID_COLOUR},
+        yaxis={"showticklabels": False, "showgrid": False},
+        legend={"orientation": "h", "y": -0.3, "x": 0},
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)

@@ -1,0 +1,87 @@
+# Look-through manifest. Copy to inbox/lookthrough.yaml and fill in:
+#
+#   cp data/lookthrough/manifest.example.yaml inbox/lookthrough.yaml
+#   desk build-lookthrough
+#
+# One entry per fund you hold. Tickers must match the `instruments` in your
+# config. Download each holdings file into inbox/ and name it here.
+#
+# `resolution` says how the fund can be resolved:
+#
+#   securities  (default)  a published holdings file lists what it owns
+#   synthetic              swap-based: holds no securities, only index exposure
+#   commodity              holds no companies at all
+#
+# A `synthetic` or `commodity` entry needs no file — it needs a reason, which the
+# X-Ray tab prints. That is the point: a fund that cannot be looked through is
+# reported as such rather than quietly left out of every percentage.
+
+funds:
+  # --- Canadian-listed, physically replicated -------------------------------
+  - ticker: ZEB
+    name: Equal Weight Banks Index ETF
+    file: ZEB_holdings.csv
+    # Provider's Canadian asset-management site → ZEB → Holdings → Download.
+    # Provider names are omitted throughout: the data-hygiene scanner treats a
+    # bank name as a possible custodian disclosure, and the ticker is enough.
+
+  - ticker: TEC
+    name: TD Global Technology Leaders Index ETF
+    file: TEC_holdings.csv
+    # tdassetmanagement.com → TEC → Holdings
+
+  # VFV holds VOO rather than the 500 companies directly, so it resolves through
+  # its underlying's file. Download VOO's holdings, not VFV's.
+  - ticker: VFV
+    name: Vanguard S&P 500 Index ETF
+    file: VOO_holdings.csv
+    via: VOO
+    note: resolved through VOO, which VFV holds
+
+  # --- US-listed, physically replicated ------------------------------------
+  - ticker: SPMO
+    name: Invesco S&P 500 Momentum ETF
+    file: SPMO_holdings.csv
+    # invesco.com → SPMO → Portfolio → Holdings (CSV)
+
+  - ticker: VONG
+    name: Vanguard Russell 1000 Growth ETF
+    file: VONG_holdings.csv
+
+  - ticker: VTWO
+    name: Vanguard Russell 2000 ETF
+    file: VTWO_holdings.csv
+
+  # --- Cannot be looked through to securities ------------------------------
+  # Verify each of these against the current fund facts before trusting the
+  # label; a provider can and does switch a fund between synthetic and physical
+  # replication, and the note below is what the X-Ray tab shows the reader.
+  - ticker: HXT
+    name: Global X S&P/TSX 60 Index Corporate Class ETF
+    resolution: synthetic
+    tracks: the S&P/TSX 60
+    note: >-
+      Total-return swap rather than physical shares, so there are no underlying
+      securities to resolve. Economic exposure is to the S&P/TSX 60; the
+      counterparty is a Canadian bank.
+    region_mix:
+      Canada: 1.0
+
+  - ticker: QQC
+    name: Global X Nasdaq-100 Index ETF
+    resolution: synthetic
+    tracks: the Nasdaq-100
+    note: >-
+      Confirm the replication method before relying on this. Global X lists both
+      swap-based and physically-held versions of this exposure; if the units held
+      are the physical version, change resolution to `securities` and supply the
+      holdings file.
+    region_mix:
+      United States: 1.0
+
+  - ticker: FBTC
+    name: Fidelity Advantage Bitcoin ETF
+    resolution: commodity
+    note: >-
+      Holds bitcoin directly. No companies, no sectors, no country of domicile,
+      so it sits outside the equity breakdowns and is reported separately.

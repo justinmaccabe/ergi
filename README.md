@@ -136,8 +136,7 @@ stop you, as it stopped an earlier draft of this very paragraph.
 
 ## Status
 
-Deployable, not yet usable as a portfolio tracker. It runs, it is locked down,
-and it shows synthetic data. It cannot yet hold yours.
+Usable. It holds a real book, values it at market, and records its own history.
 
 **Working**
 
@@ -149,31 +148,39 @@ and it shows synthetic data. It cannot yet hold yours.
   per-account pooling
 - Canadian registered-account contribution room, covering the three main plan
   types, with shared room groups and a generic fallback for anywhere else
-- Database schema and engine construction
-- Price resolution with source and staleness attached to every quote
-- `desk doctor`, `desk demo`, `desk serve`, `desk hash-passcode`
-- Dashboard shell with a working Overview tab on synthetic data
+- yfinance price and FX providers, with source and staleness on every quote
+- Market value, unrealized gain, and gain attribution decomposed into the
+  security's own return versus the currency move
+- Performance history from recorded snapshots, open and close per trading day,
+  with price coverage stored alongside each point
+- **A scheduled snapshot job** — `desk fetch-prices`, run by
+  `.github/workflows/snapshot.yml` twice each weekday. DST-aware: each local
+  target is registered as two crons and only the one matching today's offset
+  records
+- Risk and return suite against a configurable benchmark, and a correlation
+  matrix computed pairwise
+- **Factor exposure** — developed-markets Fama-French five factors plus
+  momentum, per holding and weighted to portfolio level, with prices converted
+  into the factors' currency first
+- **Holdings X-Ray** — funds resolved to the companies inside them, with overlap
+  across funds made visible. Needs composition data; see
+  [docs/lookthrough.md](docs/lookthrough.md)
+- `desk doctor`, `demo`, `backfill`, `fetch-prices`, `build-lookthrough`,
+  `push-config`, `serve`, `hash-passcode`
 - The full hygiene and CI apparatus
 
 **Not built yet**
 
-- **No price feed.** The provider protocol exists; the yfinance implementation
-  behind it does not. Nothing fetches a quote, so there is no market value
-  anywhere — only book value from the ledger.
-- **No statement import.** `intake/` is empty. Holdings cannot be loaded.
+- **No statement import.** `intake/` parses fund-composition files but not
+  broker statements. Holdings are loaded with `desk backfill` from a YAML file.
 - **No trade entry form.** The Manage tab is a placeholder.
-- **The database is not wired to the app.** Models and engine exist; the
-  dashboard reads the demo generator directly.
-- **No performance measurement** — no TWR, no XIRR, no snapshot history.
-- **No risk suite, factor regressions, look-through, optimizers, frontier, or
-  policy benchmark.**
+- **No TWR or XIRR.** Snapshot history exists; the money-weighted and
+  time-weighted return calculations on top of it do not.
+- **No optimizers, frontier, or policy benchmark.** The Policy tab is a
+  placeholder.
 - **No IPS.** `reporting/` is empty.
 - **No Alembic migration files.** Tables come from `create_all`, which is fine
   for a first deployment and not for schema changes afterwards.
-- **No scheduled snapshot job.**
 
-Five of the six dashboard tabs say so on their face rather than pretending
+Two of the six dashboard tabs still say so on their face rather than pretending
 otherwise.
-
-The next piece worth building is the price provider, because market value
-unblocks most of what follows.
