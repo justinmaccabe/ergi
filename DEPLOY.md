@@ -162,6 +162,46 @@ import or the trade form; **they never go into a file in this repository.**
 
 ---
 
+## 8. Turn on the daily snapshot
+
+The performance chart is built from recorded snapshots. Without this step the
+only thing that records one is somebody opening the dashboard and pressing
+**Fetch prices**, so the history has a gap on every day nobody looked.
+
+`.github/workflows/snapshot.yml` runs `desk fetch-prices` twice each weekday. It
+needs one secret:
+
+1. Repository **Settings → Secrets and variables → Actions → New repository
+   secret**.
+2. Name `DESK_DATABASE_URL`, value the same connection string the app uses.
+
+Then push the config into the database so the job knows what instruments to
+value, which it reads instead of a committed config file:
+
+```bash
+desk push-config --db "postgresql://..."
+```
+
+Confirm it works before relying on it: **Actions → Daily snapshot → Run
+workflow**, choose `close`, and check the log reports a market value and a
+coverage figure.
+
+Two things worth knowing about the schedule:
+
+- **Four crons, two snapshots.** GitHub's scheduler is UTC and DST-blind, so each
+  local target is registered twice — one cron for the summer offset and one for
+  the winter. `desk fetch-prices` runs only the variant matching today's offset
+  and exits quietly on the other. Half the entries in that file are *supposed* to
+  do nothing on any given day.
+- **Scheduled runs are delayed under load,** sometimes by a lot. The slot is
+  decided from the cron that fired, not the clock, so a morning run that starts
+  in the afternoon is still recorded as the open.
+
+Snapshots are upserted per date and slot, so re-running one is a no-op rather
+than a duplicate row.
+
+---
+
 ## Deploying somewhere else
 
 Streamlit Cloud is the easy path, not the only one. The app is a normal

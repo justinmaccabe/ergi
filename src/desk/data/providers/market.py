@@ -63,25 +63,45 @@ class YFinanceProvider:
         syms = [s for s in symbols if s]
         return self._download(syms, period) if syms else pd.DataFrame()
 
+    def _from_history(
+        self, syms: Sequence[str], hist: pd.DataFrame
+    ) -> tuple[dict[str, Quote], dict[str, float]]:
+        """Split one close-history frame into latest quotes and prior closes."""
+        quotes: dict[str, Quote] = {}
+        previous: dict[str, float] = {}
+        for s in syms:
+            col = hist[s].dropna() if s in hist.columns else pd.Series(dtype=float)
+            if len(col):
+                as_of = col.index[-1]
+                quotes[s] = Quote(
+                    symbol=s,
+                    price=float(col.iloc[-1]),
+                    currency="",
+                    as_of=as_of.date() if hasattr(as_of, "date") else None,
+                    source=PriceSource.LIVE,
+                )
+                # A single observation yields no prior close. Repeating the
+                # latest price here would render a real move as exactly zero.
+                if len(col) >= 2:
+                    previous[s] = float(col.iloc[-2])
+            else:
+                quotes[s] = unavailable(s)
+        return quotes, previous
+
     def quotes(self, symbols: Sequence[str]) -> Mapping[str, Quote]:
         syms = [s for s in symbols if s]
         if not syms:
             return {}
-        hist = self._download(syms, "5d")
-        out: dict[str, Quote] = {}
-        for s in syms:
-            if s in hist.columns:
-                col = hist[s].dropna()
-                if len(col):
-                    as_of = col.index[-1]
-                    out[s] = Quote(
-                        symbol=s, price=float(col.iloc[-1]), currency="",
-                        as_of=as_of.date() if hasattr(as_of, "date") else None,
-                        source=PriceSource.LIVE,
-                    )
-                    continue
-            out[s] = unavailable(s)
-        return out
+        return self._from_history(syms, self._download(syms, "5d"))[0]
+
+    def quotes_with_previous(
+        self, symbols: Sequence[str]
+    ) -> tuple[Mapping[str, Quote], Mapping[str, float]]:
+        """Both marks from a single download, so they cannot disagree."""
+        syms = [s for s in symbols if s]
+        if not syms:
+            return {}, {}
+        return self._from_history(syms, self._download(syms, "5d"))
 
 
 class YFinanceFx:

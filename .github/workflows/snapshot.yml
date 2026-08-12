@@ -1,0 +1,76 @@
+name: Daily snapshot
+
+# Records one market-value point per slot per trading day, which is what turns
+# the performance chart from a single dot into a history. Without this the only
+# way a snapshot gets written is somebody opening the dashboard and pressing a
+# button, so the series would have gaps on every day nobody looked.
+
+on:
+  schedule:
+    # GitHub's scheduler is UTC and DST-blind, so each local target is registered
+    # twice — once for the summer offset and once for the winter one — and
+    # `desk fetch-prices` runs only the variant matching today's offset,
+    # exiting quietly on the other. The alternative is a snapshot that drifts an
+    # hour twice a year and lands before the open or after the close.
+    #
+    # Targets are 9:35 and 16:05 America/Toronto (the configured market timezone).
+    - cron: "35 13 * * 1-5"   # 09:35 EDT (summer)
+    - cron: "35 14 * * 1-5"   # 09:35 EST (winter)
+    - cron: "5 20 * * 1-5"    # 16:05 EDT (summer)
+    - cron: "5 21 * * 1-5"    # 16:05 EST (winter)
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: "Which point to record"
+        required: true
+        default: close
+        type: choice
+        options: [open, close]
+
+permissions:
+  contents: read
+
+# A late run must not collide with the next scheduled one and write two rows for
+# the same slot. Snapshots are upserted so a collision is survivable, but
+# serialising is cheaper than reasoning about it.
+concurrency:
+  group: snapshot
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    name: Record market value
+    runs-on: ubuntu-latest
+    steps:
+      # Pinned to commit SHAs, matching ci.yml. A mutable tag is the standard CI
+      # supply-chain vector, and this job holds the database credential.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[prices,postgres]'
+
+      - name: Record snapshot
+        env:
+          # auth_mode is required with no default and has no meaning for a
+          # headless job; 'none' is accepted only because app_env is 'local',
+          # which is the interlock that keeps it off anything reachable.
+          DESK_AUTH_MODE: none
+          DESK_APP_ENV: local
+          DESK_DATABASE_URL: ${{ secrets.DESK_DATABASE_URL }}
+          # Via the environment, never interpolated into the run script: `${{ }}`
+          # expands before the shell sees it, so a value containing shell syntax
+          # would execute. Neither of these is attacker-controlled today, but the
+          # habit is what stops the one that is.
+          SLOT: ${{ github.event.inputs.slot || 'auto' }}
+          SCHEDULE_CRON: ${{ github.event.schedule }}
+        # No config file and no config secret: the job reads the policy row that
+        # `desk push-config` wrote, which is the same one the dashboard uses.
+        run: desk fetch-prices --slot "$SLOT" --schedule-cron "$SCHEDULE_CRON"

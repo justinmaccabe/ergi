@@ -3,6 +3,9 @@
 desk doctor          validate everything before you rely on it
 desk hash-passcode   produce the argon2 hash to put in your environment
 desk demo            build the synthetic portfolio and summarise it
+desk backfill        load opening holdings from a statement
+desk fetch-prices    record one market-value snapshot (what the scheduled job runs)
+desk push-config     store the config as a row, for a read-only host
 desk serve           run the dashboard
 """
 
@@ -11,6 +14,9 @@ from __future__ import annotations
 import datetime as dt
 import getpass
 import sys
+from collections.abc import Mapping
+from typing import Any
+from zoneinfo import ZoneInfo
 
 import typer
 from rich.console import Console
@@ -311,6 +317,102 @@ def backfill(
     console.print(f"\n[bold]book value[/bold]  {total:>14,.2f} CAD across "
                   f"{len({p.account_id for p in result.positions})} accounts")
     console.print("[dim]Market value needs the price layer; book value is exact from the ledger.")
+
+
+@app.command("fetch-prices")
+def fetch_prices(
+    config: str = typer.Option(None, "--config", "-c", help="path to portfolio.yaml"),
+    slot: str = typer.Option(
+        "auto", "--slot", help="open | close | auto (from --schedule-cron, else time of day)"
+    ),
+    schedule_cron: str = typer.Option(
+        "", "--schedule-cron", help="the cron that triggered this run; empty for a manual run"
+    ),
+) -> None:
+    """Fetch quotes, value the book, and record one snapshot.
+
+    This is what the scheduled job runs. The database URL comes from the
+    environment via `desk.settings`, never an argument — a connection string
+    passed on the command line is visible in the process list and lands in shell
+    history and CI logs.
+
+    With `--slot auto` and a `--schedule-cron`, a run whose cron does not match
+    the current UTC offset exits without recording. That is how one local target
+    can be registered twice (summer and winter) and still produce exactly one
+    snapshot per day. See `resolve_slot` for why the decision keys off the
+    scheduled cron rather than the wall clock.
+    """
+    from desk.services.market import build_snapshot, resolve_slot
+    from desk.settings import SettingsError, get_settings
+
+    try:
+        settings = get_settings()
+    except SettingsError as exc:
+        console.print(f"[red]{exc}")
+        raise typer.Exit(1) from exc
+    if settings.database_url is None:
+        console.print("[red]DESK_DATABASE_URL is not set; there is nowhere to record a snapshot.")
+        raise typer.Exit(1)
+
+    # Same resolution order as the dashboard: file, then the database row that
+    # `desk push-config` writes, then the example. The scheduled job therefore
+    # needs no config committed and no config secret — it reads the same policy
+    # the app is running on, which is also the only way the two cannot disagree
+    # about the instrument list.
+    db_url = settings.database_url.get_secret_value()
+
+    def _db_config() -> Mapping[str, Any] | None:
+        from desk.services.portfolio import load_config_payload
+
+        return load_config_payload(db_url)
+
+    try:
+        cfg = load(config, db_fallback=_db_config)
+    except ConfigError as exc:
+        console.print(f"[red]{exc}")
+        raise typer.Exit(1) from exc
+    tz = cfg.locale.timezone
+    now = dt.datetime.now(tz=ZoneInfo(tz))
+
+    if slot == "auto":
+        resolved = resolve_slot(schedule_cron, now, tz)
+        if resolved is None:
+            console.print(
+                f"[dim]skipped: cron {schedule_cron!r} is not the offset-correct run "
+                f"for {tz} today."
+            )
+            return
+    elif slot in ("open", "close"):
+        resolved = slot
+    else:
+        console.print(f"[red]--slot must be open, close or auto (got {slot!r})")
+        raise typer.Exit(1)
+
+    outcome = build_snapshot(cfg, db_url, slot=resolved, now=now)
+    if outcome is None:
+        console.print("[yellow]no positions to value; nothing recorded.")
+        return
+
+    ccy = cfg.locale.base_currency
+    console.print(f"recorded {outcome.date} ({outcome.slot})")
+    console.print(f"  market value   {outcome.market_value:>14,.2f} {ccy}")
+    console.print(f"  book value     {outcome.book_value:>14,.2f} {ccy}")
+    if outcome.daily_pnl is not None:
+        pct = f" ({outcome.daily_pnl_pct:+.2%})" if outcome.daily_pnl_pct is not None else ""
+        console.print(f"  daily move     {outcome.daily_pnl:>+14,.2f} {ccy}{pct}")
+    else:
+        console.print("  daily move     [dim]no prior close available[/dim]")
+    if outcome.benchmark_pct is not None:
+        console.print(f"  benchmark      {outcome.benchmark_pct:>+14.2%}  {cfg.benchmarks.daily}")
+    console.print(f"  price coverage {outcome.coverage:>14.1%}")
+    if outcome.unpriced:
+        console.print(f"[yellow]  unpriced: {', '.join(outcome.unpriced)}")
+    # A partial valuation is recorded, but it must not pass for a clean one.
+    if outcome.coverage < 0.999:
+        console.print(
+            f"[yellow]\nonly {outcome.coverage:.0%} of book value carried a live price. "
+            "The snapshot is stored with its coverage so the gap stays visible."
+        )
 
 
 @app.command("push-config")

@@ -500,14 +500,15 @@ def _cached_history(
 def _instrument_maps(
     cfg: PortfolioConfig, result: LedgerResult
 ) -> tuple[dict[str, str], dict[str, str]]:
-    """Ticker -> quote symbol, and ticker -> currency, for held positions only."""
-    held = {p.ticker for p in result.positions}
-    symbols, currencies = {}, {}
-    for inst in cfg.instruments:
-        if inst.ticker in held and inst.symbol:
-            symbols[inst.ticker] = inst.symbol
-            currencies[inst.ticker] = inst.currency
-    return symbols, currencies
+    """Ticker -> quote symbol, and ticker -> currency, for held positions only.
+
+    One implementation, in the service layer, shared with the scheduled job: the
+    dashboard and the snapshot must resolve the same book to the same symbols or
+    they will quietly report different market values for the same day.
+    """
+    from desk.services.market import instrument_maps
+
+    return instrument_maps(cfg.instruments, [p.ticker for p in result.positions])
 
 
 def _performance(cfg: PortfolioConfig, db_url: str | None) -> None:
@@ -596,48 +597,40 @@ def _performance(cfg: PortfolioConfig, db_url: str | None) -> None:
 
 
 def _record_now(cfg: PortfolioConfig, db_url: str) -> None:
-    """Value the book at current marks and store the result as a snapshot."""
-    from desk.analytics.valuation import (
-        portfolio_market_value,
-        priced_coverage,
-        value_positions,
-    )
-    from desk.services import portfolio as portfolio_service
-    from desk.services.market import record_snapshot
+    """Value the book at current marks and store the result as a snapshot.
 
-    loaded = portfolio_service.load(db_url)
-    result = build_ledger(loaded.entries)
-    if not result.positions:
+    Delegates the whole cycle to the same service function the scheduled job
+    calls, so a snapshot taken by hand is indistinguishable from one taken at
+    the bell — same marks, same daily-move basis, same columns populated.
+    """
+    from zoneinfo import ZoneInfo
+
+    from desk.services.market import build_snapshot, resolve_slot
+
+    base = cfg.locale.base_currency
+    tz = cfg.locale.timezone
+    now = dt.datetime.now(tz=ZoneInfo(tz))
+    with st.spinner("Fetching quotes…"):
+        # The cached-marks helper feeds the allocation donut on the same page;
+        # clearing it keeps that from showing older prices than the row just
+        # written.
+        _cached_marks.clear()
+        slot = resolve_slot(None, now, tz) or "close"
+        outcome = build_snapshot(cfg, db_url, slot=slot, now=now)
+    if outcome is None:
         st.warning("No positions to value yet.")
         return
-    symbols, currencies = _instrument_maps(cfg, result)
-    base = cfg.locale.base_currency
-    with st.spinner("Fetching quotes…"):
-        _cached_marks.clear()
-        prices, fx = _cached_marks(
-            tuple(symbols.values()), tuple({*currencies.values(), base}), base
-        )
-    by_ticker = {t: prices.get(sym) for t, sym in symbols.items()}
-    valued = value_positions(result.positions, by_ticker, fx)
-    market_value = portfolio_market_value(valued)
-    coverage = priced_coverage(valued)
-    now = dt.datetime.now()
-    record_snapshot(
-        db_url,
-        market_value=market_value,
-        book_value=sum(p.book_value_base for p in result.positions),
-        cash_value=sum(amt for _, cur, amt in loaded.cash if cur == base),
-        coverage=coverage,
-        on_date=now.date(),
-        slot="open" if now.hour < 12 else "close",
-    )
-    if coverage < 0.999:
+    if outcome.coverage < 0.999:
+        missing = f" Unpriced: {', '.join(outcome.unpriced)}." if outcome.unpriced else ""
         st.warning(
-            f"Recorded, but only {coverage:.0%} of book value carried a live price.",
+            f"Recorded, but only {outcome.coverage:.0%} of book value carried a "
+            f"live price.{missing}",
             icon="⚠️",
         )
     else:
-        st.success(f"Recorded {market_value:,.0f} {base} at full price coverage.")
+        st.success(
+            f"Recorded {outcome.market_value:,.0f} {base} ({outcome.slot}) at full coverage."
+        )
 
 
 def _open_close_table(snaps: pd.DataFrame, ccy: str) -> None:

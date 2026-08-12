@@ -48,6 +48,19 @@ class PriceProvider(Protocol):
         """
         ...
 
+    def quotes_with_previous(
+        self, symbols: Sequence[str]
+    ) -> tuple[Mapping[str, Quote], Mapping[str, float]]:
+        """Latest quotes, plus the prior session's close per symbol.
+
+        Part of the contract rather than a convenience: a daily P&L figure needs
+        both marks, and deriving the prior close from a second fetch invites the
+        two to disagree. Symbols with only one observation are absent from the
+        second mapping, so the caller reports no daily move rather than a
+        fabricated one against a repeated price.
+        """
+        ...
+
 
 @runtime_checkable
 class FxProvider(Protocol):
