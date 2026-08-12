@@ -91,9 +91,7 @@ def priced_coverage(valued: Sequence[ValuedPosition]) -> float:
     total = sum(v.position.book_value_base for v in valued)
     if total <= 0:
         return 0.0
-    priced = sum(
-        v.position.book_value_base for v in valued if v.market_value_base is not None
-    )
+    priced = sum(v.position.book_value_base for v in valued if v.market_value_base is not None)
     return priced / total
 
 
@@ -144,9 +142,7 @@ class Attribution:
         return tuple(r for r in self.rows if (r.gain_base or 0.0) < 0)
 
 
-def attribution(
-    valued: Sequence[ValuedPosition], fx_to_base: Mapping[str, float]
-) -> Attribution:
+def attribution(valued: Sequence[ValuedPosition], fx_to_base: Mapping[str, float]) -> Attribution:
     """Decompose the unrealized gain by holding, and into price versus currency.
 
     Unpriced holdings are named rather than dropped: a report that quietly omits
@@ -195,8 +191,7 @@ def attribution(
             )
         )
 
-    rows.sort(key=lambda r: r.gain_base if r.gain_base is not None else float("-inf"),
-              reverse=True)
+    rows.sort(key=lambda r: r.gain_base if r.gain_base is not None else float("-inf"), reverse=True)
     return Attribution(
         rows=tuple(rows),
         total_book=total_book,
@@ -205,7 +200,5 @@ def attribution(
         total_return=(total_gain / total_book) if total_book > 0 else None,
         price_gain=price_total,
         fx_gain=fx_total,
-        unpriced=tuple(
-            v.position.ticker for v in valued if v.market_value_base is None
-        ),
+        unpriced=tuple(v.position.ticker for v in valued if v.market_value_base is None),
     )

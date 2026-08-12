@@ -47,8 +47,11 @@ class YFinanceProvider:
         for attempt in range(self._retries + 1):
             try:
                 raw = yf.download(
-                    list(symbols), period=period, auto_adjust=True,
-                    progress=False, group_by="column",
+                    list(symbols),
+                    period=period,
+                    auto_adjust=True,
+                    progress=False,
+                    group_by="column",
                 )
                 closes = _closes(raw, symbols)
                 if not closes.empty:
@@ -117,14 +120,18 @@ class YFinanceFx:
 
     def rate(self, base: str, quote: str) -> Quote:
         if base == quote:
-            return Quote(symbol=f"{base}{quote}", price=1.0, currency=quote,
-                         as_of=dt.date.today(), source=PriceSource.LIVE)
+            return Quote(
+                symbol=f"{base}{quote}",
+                price=1.0,
+                currency=quote,
+                as_of=dt.date.today(),
+                source=PriceSource.LIVE,
+            )
         sym = self._symbol(base, quote)
         q = self._provider.quotes([sym]).get(sym)
         if q is None or not q.is_usable:
             return unavailable(sym, quote)
-        return Quote(symbol=sym, price=q.price, currency=quote,
-                     as_of=q.as_of, source=q.source)
+        return Quote(symbol=sym, price=q.price, currency=quote, as_of=q.as_of, source=q.source)
 
     def series(self, base: str, quote: str, period: str) -> pd.Series:
         if base == quote:

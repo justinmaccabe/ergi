@@ -30,7 +30,11 @@ intake = ["pdfplumber>=0.11,<1"]
 report = ["Jinja2>=3.1,<4", "reportlab>=4.2,<5"]
 dev = [
     "pytest>=8.2,<9",
-    "ruff>=0.5,<1",
+    # Pinned to a minor series, not `<1`. The formatter's opinions change between
+    # minors, so an open range means `ruff format --check` in CI can start failing
+    # on untouched files the day a new ruff ships — which is what happened. Bump
+    # this deliberately and reformat in the same commit.
+    "ruff>=0.16,<0.17",
     "mypy>=1.10,<2",
     "import-linter>=2.0,<3",
     "pre-commit>=3.7,<5",

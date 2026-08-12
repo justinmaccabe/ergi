@@ -62,8 +62,7 @@ def load(database_url: str) -> LoadedBook:
             for t in s.execute(select(Transaction).order_by(Transaction.date)).scalars()
         )
         cash = tuple(
-            (c.account_id, c.currency, float(c.amount))
-            for c in s.execute(select(Cash)).scalars()
+            (c.account_id, c.currency, float(c.amount)) for c in s.execute(select(Cash)).scalars()
         )
         contributions = tuple(
             (c.date, c.account_id, float(c.amount))

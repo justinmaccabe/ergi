@@ -80,8 +80,10 @@ class TestCompanyResolution:
     def test_overlap_table_lists_only_repeats(self) -> None:
         report = look_through(
             {"A": 100.0, "B": 100.0},
-            [fund("A", [equity("SHARED", 0.5), equity("SOLO", 0.5)]),
-             fund("B", [equity("SHARED", 1.0)])],
+            [
+                fund("A", [equity("SHARED", 0.5), equity("SOLO", 0.5)]),
+                fund("B", [equity("SHARED", 1.0)]),
+            ],
         )
         table = overlap_table(report, minimum=2)
         assert list(table["Ticker"]) == ["SHARED"]
@@ -196,10 +198,13 @@ class TestRollups:
         report = look_through(
             {"AAA": 500.0, "SWAP": 500.0},
             [
-                fund("AAA", [
-                    equity("RY", 0.5, sector="Financials"),
-                    equity("SHOP", 0.5, sector="Information Technology"),
-                ]),
+                fund(
+                    "AAA",
+                    [
+                        equity("RY", 0.5, sector="Financials"),
+                        equity("SHOP", 0.5, sector="Information Technology"),
+                    ],
+                ),
                 FundComposition(ticker="SWAP", resolution=SYNTHETIC, region_mix={"Canada": 1.0}),
             ],
         )
@@ -210,10 +215,15 @@ class TestRollups:
     def test_holdings_without_a_sector_are_left_out_of_the_sector_base(self) -> None:
         report = look_through(
             {"AAA": 1000.0},
-            [fund("AAA", [
-                equity("RY", 0.5, sector="Financials"),
-                equity("XXX", 0.5, sector=""),
-            ])],
+            [
+                fund(
+                    "AAA",
+                    [
+                        equity("RY", 0.5, sector="Financials"),
+                        equity("XXX", 0.5, sector=""),
+                    ],
+                )
+            ],
         )
         assert report.sector["Financials"] == pytest.approx(1.0)
         assert report.sector_base == pytest.approx(500.0)
@@ -221,12 +231,17 @@ class TestRollups:
     def test_regions_are_bucketed(self) -> None:
         report = look_through(
             {"AAA": 1000.0},
-            [fund("AAA", [
-                equity("A", 0.4, country="United States"),
-                equity("B", 0.3, country="Canada"),
-                equity("C", 0.2, country="Japan"),
-                equity("D", 0.1, country="Brazil"),
-            ])],
+            [
+                fund(
+                    "AAA",
+                    [
+                        equity("A", 0.4, country="United States"),
+                        equity("B", 0.3, country="Canada"),
+                        equity("C", 0.2, country="Japan"),
+                        equity("D", 0.1, country="Brazil"),
+                    ],
+                )
+            ],
         )
         assert report.region["United States"] == pytest.approx(0.4)
         assert report.region["Canada"] == pytest.approx(0.3)

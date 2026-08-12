@@ -57,11 +57,37 @@ ASSET_LABELS = {
 
 DEVELOPED = frozenset(
     {
-        "Australia", "Austria", "Belgium", "Britain", "United Kingdom", "Canada", "Denmark",
-        "Finland", "France", "Germany", "Hong Kong", "Ireland", "Israel", "Italy", "Japan",
-        "Netherlands", "New Zealand", "Norway", "Portugal", "Singapore", "South Korea",
-        "Spain", "Sweden", "Switzerland", "United States", "Luxembourg", "Bermuda",
-        "Jersey", "Cayman Islands", "Curacao", "Panama",
+        "Australia",
+        "Austria",
+        "Belgium",
+        "Britain",
+        "United Kingdom",
+        "Canada",
+        "Denmark",
+        "Finland",
+        "France",
+        "Germany",
+        "Hong Kong",
+        "Ireland",
+        "Israel",
+        "Italy",
+        "Japan",
+        "Netherlands",
+        "New Zealand",
+        "Norway",
+        "Portugal",
+        "Singapore",
+        "South Korea",
+        "Spain",
+        "Sweden",
+        "Switzerland",
+        "United States",
+        "Luxembourg",
+        "Bermuda",
+        "Jersey",
+        "Cayman Islands",
+        "Curacao",
+        "Panama",
     }
 )
 
@@ -303,9 +329,7 @@ def concentration(
         # The headline number: money in companies arriving through three or more
         # funds at once. This is the concentration that fund-level allocation
         # charts cannot show.
-        overlap_3plus=(
-            sum(c.total for c in ranked if c.funds >= 3) / total if total > 0 else 0.0
-        ),
+        overlap_3plus=(sum(c.total for c in ranked if c.funds >= 3) / total if total > 0 else 0.0),
         max_overlap=max(c.funds for c in ranked),
         tail_count=len(tail),
         tail_value=sum(c.total for c in tail),

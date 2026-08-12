@@ -89,9 +89,7 @@ class TestDailyMove:
 
     def test_foreign_holding_moves_at_todays_rate(self) -> None:
         positions = [FakePosition("USD_FUND", 10.0, "USD")]
-        move, _ = daily_move(
-            positions, {"USD_FUND": 21.0}, {"USD_FUND": 20.0}, {"USD": 1.40}
-        )
+        move, _ = daily_move(positions, {"USD_FUND": 21.0}, {"USD_FUND": 20.0}, {"USD": 1.40})
         assert move is not None
         assert round(move, 6) == 14.0
 
@@ -99,9 +97,7 @@ class TestDailyMove:
         """Not merely from the numerator — including its value in the base would
         dilute the percentage toward zero and understate a real move."""
         positions = [FakePosition("AAA", 100.0, "CAD"), FakePosition("NEW", 100.0, "CAD")]
-        move, pct = daily_move(
-            positions, {"AAA": 11.0, "NEW": 50.0}, {"AAA": 10.0}, {"CAD": 1.0}
-        )
+        move, pct = daily_move(positions, {"AAA": 11.0, "NEW": 50.0}, {"AAA": 10.0}, {"CAD": 1.0})
         assert move == 100.0
         assert pct is not None
         assert round(pct, 10) == 0.1  # 100/1000, not 100/6000

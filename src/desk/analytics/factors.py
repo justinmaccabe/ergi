@@ -200,9 +200,7 @@ def factor_exposure(
     starts = [f.start for f in weighted if f.start is not None]
     ends = [f.end for f in weighted if f.end is not None]
     window = (
-        (min(starts).strftime("%b %Y"), max(ends).strftime("%b %Y"))
-        if starts and ends
-        else None
+        (min(starts).strftime("%b %Y"), max(ends).strftime("%b %Y")) if starts and ends else None
     )
     return FactorExposure(
         factors=FACTORS,
@@ -234,10 +232,7 @@ def contribution(exposure: FactorExposure, factor: str) -> tuple[tuple[str, floa
     The portfolio loading is a weighted sum, so it decomposes exactly: these
     contributions add up to `exposure.portfolio[factor]`.
     """
-    rows = tuple(
-        (f.ticker, f.weight * f.betas.get(factor, 0.0))
-        for f in exposure.fits
-    )
+    rows = tuple((f.ticker, f.weight * f.betas.get(factor, 0.0)) for f in exposure.fits)
     return tuple(sorted(rows, key=lambda pair: -abs(pair[1])))
 
 

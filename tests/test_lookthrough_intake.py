@@ -187,9 +187,7 @@ funds:
 
     def test_build_reads_files_and_carries_reasons(self, tmp_path: Path) -> None:
         (tmp_path / "aaa.csv").write_text(ISHARES, encoding="utf-8")
-        built = build(
-            specs_from_yaml(self.MANIFEST), tmp_path, as_of=dt.date(2026, 8, 8)
-        )
+        built = build(specs_from_yaml(self.MANIFEST), tmp_path, as_of=dt.date(2026, 8, 8))
         by_ticker = {c.ticker: c for c in built}
         assert by_ticker["AAA"].resolves_to_securities
         assert by_ticker["AAA"].covered == pytest.approx(1.0)

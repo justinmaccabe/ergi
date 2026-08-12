@@ -106,9 +106,7 @@ def risk_stats(
 
     gains, losses = r[r > 0], r[r < 0]
     gain_loss = (
-        _safe(float(np.mean(gains) / abs(np.mean(losses))))
-        if gains.size and losses.size
-        else None
+        _safe(float(np.mean(gains) / abs(np.mean(losses)))) if gains.size and losses.size else None
     )
     positive = _safe(float(gains.size / n))
 
@@ -118,9 +116,7 @@ def risk_stats(
 
     if benchmark is not None and not benchmark.empty:
         bench_returns = periodic_returns(benchmark, freq)
-        joined = pd.concat(
-            [returns.rename("p"), bench_returns.rename("b")], axis=1
-        ).dropna()
+        joined = pd.concat([returns.rename("p"), bench_returns.rename("b")], axis=1).dropna()
         if len(joined) >= MIN_PERIODS:
             p = joined["p"].to_numpy(dtype=float)
             b = joined["b"].to_numpy(dtype=float)

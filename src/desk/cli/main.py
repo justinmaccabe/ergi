@@ -260,8 +260,10 @@ def backfill(
         for inst in cfg.instruments:
             s.merge(
                 Instrument(
-                    ticker=inst.ticker, quote_symbol=inst.symbol,
-                    currency=inst.currency, kind=inst.kind.value,
+                    ticker=inst.ticker,
+                    quote_symbol=inst.symbol,
+                    currency=inst.currency,
+                    kind=inst.kind.value,
                 )
             )
         # opening lots
@@ -276,23 +278,34 @@ def backfill(
             ).hexdigest()
             s.merge(
                 Transaction(
-                    date=as_of, ticker=h["ticker"], account_id=h["account"],
-                    action=Action.BUY.value, quantity=units, price=unit_cost,
-                    fees=0.0, fx_rate=fx, source_hash=digest, note="opening lot",
+                    date=as_of,
+                    ticker=h["ticker"],
+                    account_id=h["account"],
+                    action=Action.BUY.value,
+                    quantity=units,
+                    price=unit_cost,
+                    fees=0.0,
+                    fx_rate=fx,
+                    source_hash=digest,
+                    note="opening lot",
                 )
             )
             entries.append((h["ticker"], h["account"], units, unit_cost, fx, ccy))
         # cash and contributions
         for c in spec.get("cash", []):
-            s.merge(Cash(account_id=c["account"], currency=c["currency"],
-                         amount=float(c["amount"])))
+            s.merge(
+                Cash(account_id=c["account"], currency=c["currency"], amount=float(c["amount"]))
+            )
         for c in spec.get("contributions", []):
             d = c["date"]
             d = _dt.date.fromisoformat(d) if isinstance(d, str) else d
             s.merge(
                 ContributionRow(
-                    date=d, account_id=c["account"], amount=float(c["amount"]),
-                    kind="contribution", note=c.get("note"),
+                    date=d,
+                    account_id=c["account"],
+                    amount=float(c["amount"]),
+                    kind="contribution",
+                    note=c.get("note"),
                 )
             )
 
@@ -300,8 +313,16 @@ def backfill(
     from desk.analytics.positions import LedgerEntry, aggregate_by_ticker, build_ledger
 
     ledger = [
-        LedgerEntry(date=as_of, ticker=t, account_id=a, action=Action.BUY,
-                    quantity=u, price=p, fx_rate=fx, currency=ccy)
+        LedgerEntry(
+            date=as_of,
+            ticker=t,
+            account_id=a,
+            action=Action.BUY,
+            quantity=u,
+            price=p,
+            fx_rate=fx,
+            currency=ccy,
+        )
         for (t, a, u, p, fx, ccy) in entries
     ]
     result = build_ledger(ledger)
@@ -314,8 +335,10 @@ def backfill(
         table.add_row(p.ticker, f"{p.quantity:,.2f}", f"{p.book_value_base:,.2f}")
     console.print(table)
     total = sum(p.book_value_base for p in rolled)
-    console.print(f"\n[bold]book value[/bold]  {total:>14,.2f} CAD across "
-                  f"{len({p.account_id for p in result.positions})} accounts")
+    console.print(
+        f"\n[bold]book value[/bold]  {total:>14,.2f} CAD across "
+        f"{len({p.account_id for p in result.positions})} accounts"
+    )
     console.print("[dim]Market value needs the price layer; book value is exact from the ledger.")
 
 

@@ -72,9 +72,7 @@ class TestValuePositions:
         assert valued[0].return_pct is None
 
     def test_market_value_excludes_unpriced(self) -> None:
-        valued = value_positions(
-            [position("AAA"), position("BBB")], {"AAA": 15.0}, {"CAD": 1.0}
-        )
+        valued = value_positions([position("AAA"), position("BBB")], {"AAA": 15.0}, {"CAD": 1.0})
         assert portfolio_market_value(valued) == pytest.approx(1500.0)
         assert priced_coverage(valued) == pytest.approx(0.5)
 
@@ -106,9 +104,7 @@ class TestAttribution:
             position("LOSER", quantity=100, acb_native=20.0),
             position("WINNER", quantity=100, acb_native=10.0),
         ]
-        valued = value_positions(
-            positions, {"LOSER": 18.0, "WINNER": 15.0}, {"CAD": 1.0}
-        )
+        valued = value_positions(positions, {"LOSER": 18.0, "WINNER": 15.0}, {"CAD": 1.0})
         report = attribution(valued, {"CAD": 1.0})
         assert [r.ticker for r in report.rows] == ["WINNER", "LOSER"]
         assert [r.ticker for r in report.winners] == ["WINNER"]
@@ -124,9 +120,7 @@ class TestAttribution:
         assert report.price_gain + report.fx_gain == pytest.approx(report.total_gain)
 
     def test_unpriced_holdings_are_named(self) -> None:
-        valued = value_positions(
-            [position("AAA"), position("DARK")], {"AAA": 15.0}, {"CAD": 1.0}
-        )
+        valued = value_positions([position("AAA"), position("DARK")], {"AAA": 15.0}, {"CAD": 1.0})
         report = attribution(valued, {"CAD": 1.0})
         assert report.unpriced == ("DARK",)
         # and the priced totals are not polluted by the unpriced holding

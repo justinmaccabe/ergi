@@ -47,6 +47,7 @@ def _load_book(settings: Settings, *, is_demo: bool) -> tuple[LedgerResult | Non
     loaded = portfolio_service.load(settings.database_url.get_secret_value())
     return build_ledger(loaded.entries), loaded.cash
 
+
 st.set_page_config(page_title="Portfolio", layout="wide", initial_sidebar_state="collapsed")
 
 
@@ -247,9 +248,7 @@ def _overview(
     )
 
 
-def _allocation(
-    cfg: PortfolioConfig, result: LedgerResult, rolled: Sequence[Position]
-) -> None:
+def _allocation(cfg: PortfolioConfig, result: LedgerResult, rolled: Sequence[Position]) -> None:
     """Allocation by market value, with the unrealized gain the marks imply.
 
     Falls back to a book-value note when no price arrives, rather than drawing a
@@ -274,9 +273,7 @@ def _allocation(
         return
 
     try:
-        prices, fx = _cached_marks(
-            tuple(symbols.values()), tuple({*currencies.values(), ccy}), ccy
-        )
+        prices, fx = _cached_marks(tuple(symbols.values()), tuple({*currencies.values(), ccy}), ccy)
     except Exception:
         prices, fx = {}, {}
     by_ticker = {t: prices.get(sym) for t, sym in symbols.items()}
@@ -332,7 +329,9 @@ def _allocation(
         annotations=[
             {
                 "text": f"{market_value:,.0f}<br><span style='font-size:0.7em'>{ccy}</span>",
-                "x": 0.5, "y": 0.5, "showarrow": False,
+                "x": 0.5,
+                "y": 0.5,
+                "showarrow": False,
                 "font": {"family": b.serif, "size": 17, "color": "#DED8CE"},
             }
         ],
@@ -351,8 +350,7 @@ def _allocation(
                 orientation="h",
                 marker={
                     "color": [
-                        b.positive if (v.gain_base or 0.0) >= 0 else b.negative
-                        for v in ranked
+                        b.positive if (v.gain_base or 0.0) >= 0 else b.negative for v in ranked
                     ]
                 },
                 hovertemplate="%{y}: %{x:,.0f} " + ccy + "<extra></extra>",
@@ -409,9 +407,7 @@ def _attribution_report(
                     "Price": None if r.price_native is None else round(r.price_native, 4),
                     f"Book ({ccy})": round(r.book_value_base, 2),
                     f"Market ({ccy})": (
-                        None
-                        if r.market_value_base is None
-                        else round(r.market_value_base, 2)
+                        None if r.market_value_base is None else round(r.market_value_base, 2)
                     ),
                     f"Gain ({ccy})": None if r.gain_base is None else round(r.gain_base, 2),
                     "Return": r.return_pct,
@@ -454,9 +450,7 @@ def _attribution_report(
                 f"of the gain ({share:.0%}), separate from what the securities did"
             )
         if report.unpriced:
-            lines.append(
-                "excluded for want of a price: " + ", ".join(report.unpriced)
-            )
+            lines.append("excluded for want of a price: " + ", ".join(report.unpriced))
         if lines:
             st.markdown(
                 '<p class="note">' + ". ".join(lines).capitalize() + ".</p>",
@@ -557,7 +551,10 @@ def _performance(cfg: PortfolioConfig, db_url: str | None) -> None:
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
-            x=labels, y=series["market_value"], mode=mode, name="Market value",
+            x=labels,
+            y=series["market_value"],
+            mode=mode,
+            name="Market value",
             line={"color": b.primary, "width": 2},
             marker={"color": b.primary, "size": 10 if sparse else 7},
             hovertemplate="%{x}: %{y:,.0f} " + ccy + "<extra>Market value</extra>",
@@ -565,8 +562,10 @@ def _performance(cfg: PortfolioConfig, db_url: str | None) -> None:
     )
     fig.add_trace(
         go.Scatter(
-            x=labels, y=series["book_value"],
-            mode="markers" if sparse else "lines+markers", name="Book value",
+            x=labels,
+            y=series["book_value"],
+            mode="markers" if sparse else "lines+markers",
+            name="Book value",
             line={"color": b.accent, "width": 1.6, "dash": "dot", "shape": "hv"},
             marker={
                 "color": b.accent,
@@ -577,8 +576,10 @@ def _performance(cfg: PortfolioConfig, db_url: str | None) -> None:
         )
     )
     fig.update_layout(
-        height=320, margin={"l": 8, "r": 8, "t": 8, "b": 8},
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        height=320,
+        margin={"l": 8, "r": 8, "t": 8, "b": 8},
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
         font={"family": b.serif, "color": "#DED8CE"},
         xaxis={"type": "category", "showgrid": False},
         yaxis={"gridcolor": GRID_COLOUR, "tickformat": ",.0f", "title": ccy},
@@ -670,9 +671,7 @@ def _open_close_table(snaps: pd.DataFrame, ccy: str) -> None:
 
 def _analytics(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
     """Analytics views, grouped so the tab strip stays readable."""
-    correlations, factors, xray = st.tabs(
-        ["Correlations", "Factor Exposure", "Holdings X-Ray"]
-    )
+    correlations, factors, xray = st.tabs(["Correlations", "Factor Exposure", "Holdings X-Ray"])
     with correlations:
         _correlations(cfg, result)
     with factors:
@@ -693,9 +692,7 @@ def _correlations(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
         return
     symbols, currencies = _instrument_maps(cfg, result)
     if len(symbols) < 2:
-        st.markdown(
-            '<p class="note">Two quotable holdings are needed.</p>', unsafe_allow_html=True
-        )
+        st.markdown('<p class="note">Two quotable holdings are needed.</p>', unsafe_allow_html=True)
         return
     with st.spinner("Loading price history…"):
         history = _cached_history(
@@ -717,17 +714,25 @@ def _correlations(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
     b = cfg.branding
     fig = go.Figure(
         go.Heatmap(
-            z=z, x=labels[:-1], y=labels[1:], zmin=0, zmax=1,
+            z=z,
+            x=labels[:-1],
+            y=labels[1:],
+            zmin=0,
+            zmax=1,
             colorscale=[[0.0, "#2C242A"], [0.5, "#8C6A75"], [1.0, b.primary]],
-            text=text, texttemplate="%{text}",
+            text=text,
+            texttemplate="%{text}",
             textfont={"size": 12, "color": "#DED8CE"},
-            hoverongaps=False, showscale=False,
+            hoverongaps=False,
+            showscale=False,
             hovertemplate="%{y} x %{x}: %{z:.2f}<extra></extra>",
         )
     )
     fig.update_layout(
-        height=460, margin={"l": 8, "r": 8, "t": 8, "b": 8},
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        height=460,
+        margin={"l": 8, "r": 8, "t": 8, "b": 8},
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
         font={"family": b.serif, "color": "#DED8CE"},
         yaxis={"autorange": "reversed"},
     )
@@ -928,10 +933,7 @@ def _holdings_xray(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
                 "Weight": st.column_config.NumberColumn(format="%.3f%%"),
                 "Total": st.column_config.NumberColumn(format="%.0f"),
                 "Funds": st.column_config.NumberColumn(format="%d"),
-                **{
-                    f: st.column_config.NumberColumn(format="%.0f")
-                    for f in sorted(resolved_funds)
-                },
+                **{f: st.column_config.NumberColumn(format="%.0f") for f in sorted(resolved_funds)},
             },
         )
         st.markdown(
@@ -1195,10 +1197,7 @@ def _factor_exposure(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
             "Weight": st.column_config.NumberColumn(format="%.1f%%"),
             "R²": st.column_config.NumberColumn(format="%.2f"),
             "Alpha (monthly)": st.column_config.NumberColumn(format="%.2f%%"),
-            **{
-                f: st.column_config.NumberColumn(format="%.2f")
-                for f in exposure.factors
-            },
+            **{f: st.column_config.NumberColumn(format="%.2f") for f in exposure.factors},
         },
     )
 
@@ -1236,9 +1235,7 @@ def _exposure_weights(
     book = {p.ticker: p.book_value_base for p in rolled}
     ccy = cfg.locale.base_currency
     try:
-        prices, fx = _cached_marks(
-            tuple(symbols.values()), tuple({*currencies.values(), ccy}), ccy
-        )
+        prices, fx = _cached_marks(tuple(symbols.values()), tuple({*currencies.values(), ccy}), ccy)
     except Exception:
         return book
     weights: dict[str, float] = {}
@@ -1246,9 +1243,7 @@ def _exposure_weights(
         symbol = symbols.get(p.ticker)
         price = prices.get(symbol) if symbol else None
         rate = fx.get(p.currency, 1.0)
-        weights[p.ticker] = (
-            p.quantity * price * rate if price is not None else book[p.ticker]
-        )
+        weights[p.ticker] = p.quantity * price * rate if price is not None else book[p.ticker]
     return weights
 
 
@@ -1298,10 +1293,20 @@ def _risk(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
         return
 
     pct = {
-        "Arithmetic mean", "Geometric mean", "Volatility", "Downside deviation",
-        "Maximum drawdown", "Alpha", "Active return", "Tracking error",
-        "Historical VaR (5%)", "Analytical VaR (5%)", "Conditional VaR (5%)",
-        "Up capture", "Down capture", "Positive periods",
+        "Arithmetic mean",
+        "Geometric mean",
+        "Volatility",
+        "Downside deviation",
+        "Maximum drawdown",
+        "Alpha",
+        "Active return",
+        "Tracking error",
+        "Historical VaR (5%)",
+        "Analytical VaR (5%)",
+        "Conditional VaR (5%)",
+        "Up capture",
+        "Down capture",
+        "Positive periods",
     }
     rows = [
         ("Arithmetic mean", stats.arithmetic_mean),
@@ -1333,9 +1338,7 @@ def _risk(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
         {
             "Metric": label,
             "Value": (
-                "—"
-                if value is None
-                else (f"{value:.2%}" if label in pct else f"{value:.2f}")
+                "—" if value is None else (f"{value:.2%}" if label in pct else f"{value:.2f}")
             ),
         }
         for label, value in rows

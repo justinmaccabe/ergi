@@ -48,9 +48,7 @@ FACTOR_CURRENCY = "USD"
 EQUITY_LIKE = frozenset({"equity", "equities", "stock", "stocks", "etf", "fund"})
 
 
-def factor_eligible(
-    instruments: Iterable[object], held: Iterable[str] | None = None
-) -> set[str]:
+def factor_eligible(instruments: Iterable[object], held: Iterable[str] | None = None) -> set[str]:
     """Tickers for which an equity-factor regression is meaningful.
 
     A holding is eligible unless its `asset_class` is set to something outside

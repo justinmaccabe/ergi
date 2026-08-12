@@ -51,8 +51,15 @@ DATA_VERSION = 2
 TICKER_KEYS = ("ticker", "symbol", "holding ticker", "issue ticker", "sedol ticker")
 NAME_KEYS = ("name", "security name", "holding name", "issuer name", "description")
 WEIGHT_KEYS = (
-    "weight (%)", "weight", "% of net assets", "percent of net assets", "portfolio weight",
-    "% of fund", "market value percentage", "weighting", "% weight",
+    "weight (%)",
+    "weight",
+    "% of net assets",
+    "percent of net assets",
+    "portfolio weight",
+    "% of fund",
+    "market value percentage",
+    "weighting",
+    "% weight",
 )
 SECTOR_KEYS = ("sector", "gics sector", "industry", "sub industry")
 COUNTRY_KEYS = ("country", "location", "domicile", "country of risk")
