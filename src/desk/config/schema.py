@@ -119,6 +119,12 @@ class InstrumentKind(StrEnum):
     FUND = "fund"
     CASH = "cash"
     PRIVATE = "private"
+    # Directly-held crypto, as distinct from a fund that holds it. It is quotable
+    # (so not `private`) but it is not a fund and owns no companies, and calling
+    # it an ETF would be the kind of small inaccuracy this schema exists to
+    # prevent. Behaviour is unaffected — `kind` is a label, and the analytics
+    # exclusion is driven by `asset_class`.
+    CRYPTO = "crypto"
 
 
 class Instrument(Strict):
