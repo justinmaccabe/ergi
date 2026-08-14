@@ -793,15 +793,42 @@ def _holdings_xray(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
     # resolved sleeve, and the reader needs to know how big that sleeve is before
     # reading them.
     if report.coverage < 0.999:
-        rows = " · ".join(
-            f"<strong>{t}</strong> {v:,.0f} {ccy} ({why})"
-            for t, (v, why) in sorted(report.unresolved.items(), key=lambda kv: -kv[1][0])
-        )
+        parts: list[str] = []
+        if report.unresolved:
+            parts.append(
+                "Holding no securities to resolve: "
+                + " · ".join(
+                    f"<strong>{t}</strong> {v:,.0f} {ccy} ({why})"
+                    for t, (v, why) in sorted(report.unresolved.items(), key=lambda kv: -kv[1][0])
+                )
+            )
+        if report.partial:
+            parts.append(
+                "Published in part only, so the rest of each is unseen rather than "
+                "absent: "
+                + " · ".join(
+                    f"<strong>{t}</strong> {shown} of {held:,}"
+                    for t, (_, shown, held) in sorted(
+                        report.partial.items(), key=lambda kv: -kv[1][0]
+                    )
+                )
+            )
         st.markdown(
             f'<p class="note">Security detail covers <strong>{report.coverage:.0%}</strong> '
-            f"of the portfolio. The rest holds no securities to resolve and is excluded "
-            f"from the company, sector and concentration figures below rather than "
-            f"diluted into them: {rows}.</p>",
+            f"of the portfolio. Everything else is excluded from the company, sector and "
+            f"concentration figures below rather than diluted into them. "
+            + ". ".join(parts)
+            + ".</p>",
+            unsafe_allow_html=True,
+        )
+    if report.stats_are_lower_bounds:
+        st.markdown(
+            '<p class="note">Because some funds publish only their largest holdings, '
+            "every figure here is a <em>floor</em>. A company shown at 2% holds at least "
+            "2%; it may also sit in the unpublished tail of another fund. Overlap counts "
+            "understate for the same reason — the doubling shown is real, and there is "
+            "likely more of it. Supplying full holdings files turns these into exact "
+            "figures.</p>",
             unsafe_allow_html=True,
         )
 
@@ -822,14 +849,15 @@ def _holdings_xray(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
         help=f"{top.total:,.0f} {ccy}, arriving through {top.funds} "
         f"{'fund' if top.funds == 1 else 'separate funds'}.",
     )
-    bb.metric("Top 10 companies", f"{s.top10:.1%}")
-    c.metric("Distinct securities", f"{s.distinct:,}")
+    floor = "at least " if report.stats_are_lower_bounds else ""
+    bb.metric("Top 10 companies", f"{floor}{s.top10:.1%}")
+    c.metric("Companies seen", f"{floor}{s.distinct:,}")
     d.metric(
-        "Held via 3+ funds",
-        f"{s.overlap_3plus:.1%}",
-        help="Share of the portfolio sitting in companies delivered by three or more "
-        "of your funds at once. This is the concentration a fund-level allocation "
-        "chart cannot show.",
+        "Held via 2+ sources",
+        f"{floor}{sum(x.total for x in report.companies if x.funds >= 2) / report.total:.1%}",
+        help="Share of the portfolio in companies arriving through more than one "
+        "holding at once — a fund and a direct position, or two funds. This is the "
+        "concentration a fund-level allocation chart cannot show.",
     )
 
     st.markdown(
