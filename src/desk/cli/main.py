@@ -534,7 +534,7 @@ def status(
 
     with session_scope(factory) as s:
 
-        def count(model: object) -> int:
+        def count(model: type[Any]) -> int:
             return int(s.execute(select(func.count()).select_from(model)).scalar() or 0)
 
         config_row = s.get(AppConfig, 1)
