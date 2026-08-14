@@ -488,6 +488,102 @@ def fetch_prices(
         )
 
 
+@app.command()
+def status(
+    db: str = typer.Option(None, "--db", help="database URL; defaults to DESK_DATABASE_URL"),
+) -> None:
+    """Report what is actually in the database.
+
+    Exists because every other command is quiet on success, which makes "did that
+    work?" a question you cannot answer without opening a SQL client. This reads
+    only, changes nothing, and prints the counts that determine what the dashboard
+    can show.
+    """
+    from sqlalchemy import func, select
+
+    from desk.store.engine import build_engine, create_all, session_factory, session_scope
+    from desk.store.models import (
+        AppConfig,
+        Cash,
+        ContributionRow,
+        Instrument,
+        Snapshot,
+        Transaction,
+    )
+
+    url = db
+    if not url:
+        from desk.settings import SettingsError, get_settings
+
+        try:
+            settings = get_settings()
+        except SettingsError as exc:
+            console.print(f"[red]{exc}")
+            raise typer.Exit(1) from exc
+        if settings.database_url is None:
+            console.print("[red]no --db given and DESK_DATABASE_URL is not set.")
+            raise typer.Exit(1)
+        url = settings.database_url.get_secret_value()
+
+    engine = build_engine(url)
+    create_all(engine)
+    factory = session_factory(engine)
+    table = Table(title="desk status", show_header=True, header_style="bold")
+    table.add_column("what")
+    table.add_column("state", overflow="fold")
+
+    with session_scope(factory) as s:
+
+        def count(model: object) -> int:
+            return int(s.execute(select(func.count()).select_from(model)).scalar() or 0)
+
+        config_row = s.get(AppConfig, 1)
+        table.add_row(
+            "config row",
+            "present — the dashboard reads its accounts and instruments from here"
+            if config_row
+            else "[yellow]missing — run `desk push-config`",
+        )
+        table.add_row("instruments", f"{count(Instrument)} rows")
+
+        positions = list(s.execute(select(Transaction)).scalars())
+        if positions:
+            tickers = len({t.ticker for t in positions})
+            accounts = len({t.account_id for t in positions})
+            table.add_row(
+                "ledger", f"{len(positions)} rows over {tickers} tickers, {accounts} account(s)"
+            )
+        else:
+            table.add_row("ledger", "[yellow]empty — run `desk backfill`")
+
+        table.add_row("cash rows", f"{count(Cash)}")
+        table.add_row("contributions", f"{count(ContributionRow)}")
+
+        snaps = list(s.execute(select(Snapshot).order_by(Snapshot.date)).scalars())
+        recorded = [x for x in snaps if x.slot != "recon"]
+        recon = [x for x in snaps if x.slot == "recon"]
+        if recorded:
+            table.add_row(
+                "recorded snapshots",
+                f"{len(recorded)} — {recorded[0].date} to {recorded[-1].date}. "
+                "The performance chart draws a line from two or more.",
+            )
+        else:
+            table.add_row(
+                "recorded snapshots",
+                "[yellow]none — press Fetch prices, or let the daily job run",
+            )
+        if recon:
+            table.add_row(
+                "reconstructed", f"{len(recon)} — {recon[0].date} to {recon[-1].date} (dashed line)"
+            )
+        else:
+            table.add_row("reconstructed", "[dim]none — run `desk backfill-snapshots`")
+
+    console.print(table)
+    console.print("[dim]Read-only. Nothing was changed.")
+
+
 @app.command("backfill-snapshots")
 def backfill_snapshots(
     config: str = typer.Option(None, "--config", "-c", help="path to portfolio.yaml"),
