@@ -28,6 +28,29 @@ def periodic_returns(values: pd.Series, freq: str = "ME") -> pd.Series:
     return resampled.pct_change().dropna()
 
 
+def rebase(values: pd.Series, start_value: float) -> pd.Series:
+    """Scale a series so its first observation equals `start_value`.
+
+    Turns a benchmark's price history into "what the same money would have become",
+    which puts it on the portfolio's own axis in real currency. The alternative —
+    indexing both to 100, or giving the benchmark a second y-axis — either discards
+    the amounts or invites the reader to compare two differently-scaled lines by
+    eye, which is how a dual-axis chart misleads.
+
+    Multiplicative, so every return in the series is preserved exactly; only the
+    starting level moves.
+    """
+    if values is None or values.empty or start_value <= 0:
+        return pd.Series(dtype=float)
+    cleaned = values.dropna()
+    if cleaned.empty:
+        return pd.Series(dtype=float)
+    first = float(cleaned.iloc[0])
+    if first <= 0:
+        return pd.Series(dtype=float)
+    return cleaned * (start_value / first)
+
+
 def max_drawdown(values: pd.Series) -> float | None:
     """Worst peak-to-trough decline of a value series, as a negative fraction."""
     if values is None or len(values) < 2:

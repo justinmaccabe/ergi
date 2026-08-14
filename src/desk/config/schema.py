@@ -152,8 +152,14 @@ class Instrument(Strict):
 
 
 class Comparator(Strict):
+    """A series to draw alongside the portfolio on the performance chart."""
+
     label: str
     symbol: str
+    # Declared, never inferred from the symbol suffix — the same rule the
+    # instrument list follows. None means it is already in the base currency, so a
+    # Canadian investor comparing against CAD-listed proxies needs no FX at all.
+    currency: str | None = None
 
 
 class Benchmarks(Strict):

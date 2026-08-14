@@ -450,6 +450,26 @@ def reconstruct_history(
     return len(sampled), index.min().date(), index.max().date()
 
 
+def comparator_history(
+    comparators: Sequence[tuple[str, str, str]],
+    base: str,
+    period: str = "5y",
+) -> dict[str, pd.Series]:
+    """Price history per comparator label, converted into base currency.
+
+    Each entry is (label, symbol, currency); an empty currency means the series is
+    already in base. Reuses `base_history`, so a comparator quoted in a foreign
+    currency carries the same FX treatment as a holding — the return a base-currency
+    investor would actually have experienced, currency move included.
+    """
+    if not comparators:
+        return {}
+    symbols = {label: symbol for label, symbol, _ in comparators}
+    currencies = {label: (currency or base) for label, _, currency in comparators}
+    frame = base_history(symbols, currencies, base, period)
+    return {label: frame[label].dropna() for label in frame.columns}
+
+
 def read_snapshots(database_url: str) -> pd.DataFrame:
     """Every recorded snapshot, one row per date+slot, oldest first."""
     engine = build_engine(database_url)

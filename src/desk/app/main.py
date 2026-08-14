@@ -522,6 +522,15 @@ def _instrument_maps(
     return instrument_maps(cfg.instruments, [p.ticker for p in result.positions])
 
 
+@st.cache_data(ttl=900, show_spinner=False)
+def _cached_comparators(
+    comparators: tuple[tuple[str, str, str], ...], base: str
+) -> dict[str, pd.Series]:
+    from desk.services.market import comparator_history
+
+    return comparator_history(comparators, base)
+
+
 def _performance(cfg: PortfolioConfig, db_url: str | None) -> None:
     """Fetch prices, record a snapshot, and chart the recorded history."""
     import plotly.graph_objects as go
@@ -558,6 +567,7 @@ def _performance(cfg: PortfolioConfig, db_url: str | None) -> None:
         )
         return
 
+    from desk.analytics.risk import rebase
     from desk.services.market import RECONSTRUCTED
 
     # Reconstructed points value today's units at past prices. They are a backtest
@@ -574,10 +584,12 @@ def _performance(cfg: PortfolioConfig, db_url: str | None) -> None:
     sparse = len(series) < 2
     mode = "markers" if sparse else "lines+markers"
     fig = go.Figure()
+    overlaid: list[str] = []
     if not history.empty:
+        history_dates = pd.to_datetime(history["date"])
         fig.add_trace(
             go.Scatter(
-                x=[d.strftime("%b %d") for d in pd.to_datetime(history["date"])],
+                x=[d.strftime("%b %d") for d in history_dates],
                 y=history["market_value"],
                 mode="lines",
                 name="Reconstructed",
@@ -587,6 +599,39 @@ def _performance(cfg: PortfolioConfig, db_url: str | None) -> None:
                 + "<extra>Reconstructed — today's units at past prices</extra>",
             )
         )
+        # Comparators are rebased to the reconstructed series' own starting value, so
+        # the question they answer is "what would the same money have become". That
+        # comparison is fair precisely because the reconstruction holds units
+        # constant: both sides are buy-and-hold from the same date, with no
+        # contributions on either.
+        start_value = float(history["market_value"].iloc[0])
+        palette = list(b.categorical) or [b.primary]
+        for index, (label, prices) in enumerate(
+            _cached_comparators(
+                tuple((c.label, c.symbol, c.currency or "") for c in cfg.benchmarks.comparators),
+                ccy,
+            ).items()
+        ):
+            aligned = rebase(prices.reindex(history_dates).ffill().dropna(), start_value)
+            if aligned.empty:
+                continue
+            overlaid.append(label)
+            fig.add_trace(
+                go.Scatter(
+                    x=[d.strftime("%b %d") for d in pd.DatetimeIndex(aligned.index)],
+                    y=aligned.to_numpy(),
+                    mode="lines",
+                    name=label,
+                    line={
+                        "color": palette[(index + 2) % len(palette)],
+                        "width": 1.2,
+                        "dash": "dot",
+                    },
+                    hovertemplate="%{x}: %{y:,.0f} "
+                    + ccy
+                    + f"<extra>{label} — same starting amount</extra>",
+                )
+            )
     fig.add_trace(
         go.Scatter(
             x=labels,
@@ -632,6 +677,16 @@ def _performance(cfg: PortfolioConfig, db_url: str | None) -> None:
             "backwards as though it had always been there, and contributions are invisible. "
             "Solid markers are real recorded snapshots. Only those carry book value, which "
             "is why the reconstructed line has no companion.</p>",
+            unsafe_allow_html=True,
+        )
+    if overlaid:
+        st.markdown(
+            f'<p class="note">Dotted lines are <strong>{" and ".join(overlaid)}</strong>, '
+            "each started at the same amount on the same date, so the gap is the "
+            "difference in return rather than in size. The comparison is a fair one "
+            "here because both sides are buy-and-hold from that date — once recorded "
+            "snapshots include contributions, a like-for-like comparison needs a "
+            "money-weighted return instead.</p>",
             unsafe_allow_html=True,
         )
     if sparse:
