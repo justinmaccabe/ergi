@@ -535,13 +535,21 @@ def _performance(cfg: PortfolioConfig, db_url: str | None) -> None:
     if snaps.empty:
         st.markdown(
             '<p class="note">No snapshots yet. Press <em>Fetch prices</em> to record '
-            "the first one.</p>",
+            "the first one, or run <code>desk backfill-snapshots</code> to fill the "
+            "chart from price history straight away.</p>",
             unsafe_allow_html=True,
         )
         return
 
-    closes = snaps[snaps["slot"] == "close"]
-    series = closes if not closes.empty else snaps
+    from desk.services.market import RECONSTRUCTED
+
+    # Reconstructed points value today's units at past prices. They are a backtest
+    # of the current book, not observations, so they are drawn as their own series
+    # and never merged into the recorded one.
+    history = snaps[snaps["slot"] == RECONSTRUCTED].sort_values("date")
+    recorded = snaps[snaps["slot"] != RECONSTRUCTED]
+    closes = recorded[recorded["slot"] == "close"]
+    series = closes if not closes.empty else recorded
     labels = [d.strftime("%b %d") for d in pd.to_datetime(series["date"])]
     ccy = cfg.locale.base_currency
     # One recorded point draws an invisible line, so markers carry the series
@@ -549,6 +557,19 @@ def _performance(cfg: PortfolioConfig, db_url: str | None) -> None:
     sparse = len(series) < 2
     mode = "markers" if sparse else "lines+markers"
     fig = go.Figure()
+    if not history.empty:
+        fig.add_trace(
+            go.Scatter(
+                x=[d.strftime("%b %d") for d in pd.to_datetime(history["date"])],
+                y=history["market_value"],
+                mode="lines",
+                name="Reconstructed",
+                line={"color": b.accent, "width": 1.4, "dash": "dash"},
+                hovertemplate="%{x}: %{y:,.0f} "
+                + ccy
+                + "<extra>Reconstructed — today's units at past prices</extra>",
+            )
+        )
     fig.add_trace(
         go.Scatter(
             x=labels,
@@ -586,15 +607,29 @@ def _performance(cfg: PortfolioConfig, db_url: str | None) -> None:
         legend={"orientation": "h", "y": 1.12, "x": 0},
     )
     st.plotly_chart(fig, use_container_width=True)
+    if not history.empty:
+        st.markdown(
+            '<p class="note">The dashed line is <strong>reconstructed</strong>: the units '
+            "held today, valued at the prices of each past date. It is a backtest of the "
+            "current book, not a record of it — a position opened last month is projected "
+            "backwards as though it had always been there, and contributions are invisible. "
+            "Solid markers are real recorded snapshots. Only those carry book value, which "
+            "is why the reconstructed line has no companion.</p>",
+            unsafe_allow_html=True,
+        )
     if sparse:
         st.markdown(
             '<p class="note">One recorded point so far, shown as markers — the gap '
-            "between them is the unrealized gain. Press <em>Fetch prices</em> again "
-            "on later days and the lines join up into a history.</p>",
+            "between them is the unrealized gain. Once the daily job has run a few "
+            "times the recorded series joins up into a history of its own.</p>",
             unsafe_allow_html=True,
         )
 
-    _open_close_table(snaps, ccy)
+    # Recorded rows only. The reconstructed series has no open/close distinction,
+    # so passing it here would add a row per reconstructed date with both columns
+    # empty — dozens of blank lines above the handful of real ones.
+    if not recorded.empty:
+        _open_close_table(recorded, ccy)
 
 
 def _record_now(cfg: PortfolioConfig, db_url: str) -> None:

@@ -438,6 +438,60 @@ def fetch_prices(
         )
 
 
+@app.command("backfill-snapshots")
+def backfill_snapshots(
+    config: str = typer.Option(None, "--config", "-c", help="path to portfolio.yaml"),
+    period: str = typer.Option("5y", "--period", help="how far back to reconstruct"),
+    freq: str = typer.Option("W-FRI", "--freq", help="sampling frequency, e.g. W-FRI or B"),
+) -> None:
+    """Fill the performance chart from price history.
+
+    A new deployment has no snapshots, so the chart needs two trading days to draw
+    a line and months before it says anything. This values the units held today at
+    each past date and stores the result.
+
+    These are reconstructed points, not observations: a lot bought last month is
+    projected backwards as though it had always been held. They are written under
+    their own slot so nothing confuses them with recorded snapshots, and the chart
+    draws them as a separate, dashed series.
+    """
+    from desk.services.market import reconstruct_history
+    from desk.settings import SettingsError, get_settings
+
+    try:
+        settings = get_settings()
+    except SettingsError as exc:
+        console.print(f"[red]{exc}")
+        raise typer.Exit(1) from exc
+    if settings.database_url is None:
+        console.print("[red]DESK_DATABASE_URL is not set.")
+        raise typer.Exit(1)
+    db_url = settings.database_url.get_secret_value()
+
+    def _db_config() -> Mapping[str, Any] | None:
+        from desk.services.portfolio import load_config_payload
+
+        return load_config_payload(db_url)
+
+    try:
+        cfg = load(config, db_fallback=_db_config)
+    except ConfigError as exc:
+        console.print(f"[red]{exc}")
+        raise typer.Exit(1) from exc
+
+    with console.status("fetching price history…"):
+        outcome = reconstruct_history(cfg, db_url, period=period, freq=freq)
+    if outcome is None:
+        console.print("[yellow]nothing to reconstruct — no positions, or no price history.")
+        return
+    rows, first, last = outcome
+    console.print(f"[green]wrote {rows} reconstructed points[/green] from {first} to {last}.")
+    console.print(
+        "[dim]These value today's units at past prices. They are a backtest of the "
+        "current book, not a record of what was held, and the chart labels them so."
+    )
+
+
 @app.command("build-lookthrough")
 def build_lookthrough(
     manifest: str = typer.Option(
