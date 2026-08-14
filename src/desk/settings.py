@@ -20,7 +20,7 @@ import os
 from enum import StrEnum
 from functools import lru_cache
 
-from pydantic import Field, SecretStr, ValidationError, model_validator
+from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -75,6 +75,30 @@ class Settings(BaseSettings):
 
     login_max_attempts: int = Field(default=5, ge=1, le=100)
     login_window_minutes: int = Field(default=15, ge=1, le=1440)
+
+    @field_validator(
+        "database_url",
+        "passcode_hash",
+        "session_secret",
+        "oidc_client_id",
+        "oidc_client_secret",
+        "config_path",
+        mode="before",
+    )
+    @classmethod
+    def _blank_is_unset(cls, value: object) -> object:
+        """An empty value means absent, not present-and-empty.
+
+        GitHub Actions interpolates a missing secret as an empty string rather than
+        leaving the variable unset, so `${{ secrets.MISSING }}` arrives as "". That
+        made `database_url` a SecretStr("") — not None, so an `is None` guard passed
+        it straight through to the engine, which then failed several frames deeper
+        with a message about hosted deployments losing their history.
+
+        Normalising here rather than at each call site means the environment
+        boundary owns the distinction, and every consumer can trust `is None`.
+        """
+        return None if isinstance(value, str) and not value.strip() else value
 
     @property
     def allowed_email_set(self) -> frozenset[str]:

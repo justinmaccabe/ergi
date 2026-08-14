@@ -127,3 +127,56 @@ class TestWithoutStreamlit:
         """CLI use has no secret store and that is not a fault."""
         monkeypatch.setitem(sys.modules, "streamlit", None)
         assert settings_module._load_streamlit_secrets_into_env() is None
+
+
+class TestBlankSecretsAreTreatedAsAbsent:
+    """GitHub Actions interpolates a missing secret as "", not as unset.
+
+    So `${{ secrets.NOT_SET }}` arrives as an empty string, and a `SecretStr("")` is
+    not None. An `is None` guard therefore passed it through, and the failure landed
+    several frames deeper in the engine as "a database URL is required... in a hosted
+    deployment that would look like losing your history" — alarming, and about the
+    wrong thing.
+    """
+
+    def test_an_empty_database_url_reads_as_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("DESK_AUTH_MODE", "none")
+        monkeypatch.setenv("DESK_APP_ENV", "local")
+        monkeypatch.setenv("DESK_DATABASE_URL", "")
+        assert get_settings().database_url is None
+
+    def test_whitespace_only_also_reads_as_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("DESK_AUTH_MODE", "none")
+        monkeypatch.setenv("DESK_APP_ENV", "local")
+        monkeypatch.setenv("DESK_DATABASE_URL", "   ")
+        assert get_settings().database_url is None
+
+    def test_a_real_url_is_untouched(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("DESK_AUTH_MODE", "none")
+        monkeypatch.setenv("DESK_APP_ENV", "local")
+        monkeypatch.setenv("DESK_DATABASE_URL", "postgresql://u:p@h/db")
+        settings = get_settings()
+        assert settings.database_url is not None
+        assert settings.database_url.get_secret_value() == "postgresql://u:p@h/db"
+
+    def test_an_empty_passcode_hash_still_fails_closed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The security-relevant half. An empty hash must never satisfy the gate."""
+        monkeypatch.setenv("DESK_AUTH_MODE", "passcode")
+        monkeypatch.setenv("DESK_APP_ENV", "local")
+        monkeypatch.setenv("DESK_PASSCODE_HASH", "")
+        monkeypatch.setenv("DESK_SESSION_SECRET", "")
+        with pytest.raises(SettingsError, match="requires DESK_PASSCODE_HASH"):
+            get_settings()
+
+    def test_prod_still_refuses_an_empty_database_url(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("DESK_AUTH_MODE", "passcode")
+        monkeypatch.setenv("DESK_APP_ENV", "prod")
+        monkeypatch.setenv("DESK_PASSCODE_HASH", "$argon2id$v=19$m=65536,t=3,p=4$a$b")
+        monkeypatch.setenv("DESK_SESSION_SECRET", "a" * 64)
+        monkeypatch.setenv("DESK_DATABASE_URL", "")
+        with pytest.raises(SettingsError, match="DESK_DATABASE_URL is required"):
+            get_settings()
