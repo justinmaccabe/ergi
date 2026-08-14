@@ -329,7 +329,7 @@ def _allocation(cfg: PortfolioConfig, result: LedgerResult, rolled: Sequence[Pos
             sort=False,
             marker={
                 "colors": [palette[i % len(palette)] for i in range(len(ordered))],
-                "line": {"color": "#221C20", "width": 1},
+                "line": {"color": b.primary, "width": 1},
             },
             textinfo="label+percent",
             textfont={"family": b.serif, "size": 12},
@@ -341,7 +341,7 @@ def _allocation(cfg: PortfolioConfig, result: LedgerResult, rolled: Sequence[Pos
         margin={"l": 8, "r": 8, "t": 8, "b": 8},
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font={"family": b.serif, "color": "#DED8CE"},
+        font={"family": b.serif, "color": b.ink, "size": 13},
         showlegend=False,
         annotations=[
             {
@@ -349,7 +349,7 @@ def _allocation(cfg: PortfolioConfig, result: LedgerResult, rolled: Sequence[Pos
                 "x": 0.5,
                 "y": 0.5,
                 "showarrow": False,
-                "font": {"family": b.serif, "size": 17, "color": "#DED8CE"},
+                "font": {"family": b.serif, "size": 17, "color": b.ink},
             }
         ],
     )
@@ -378,7 +378,7 @@ def _allocation(cfg: PortfolioConfig, result: LedgerResult, rolled: Sequence[Pos
             margin={"l": 8, "r": 8, "t": 8, "b": 8},
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
-            font={"family": b.serif, "color": "#DED8CE"},
+            font={"family": b.serif, "color": b.ink, "size": 13},
             xaxis={"gridcolor": GRID_COLOUR, "tickformat": ",.0f", "title": ccy},
             yaxis={"showgrid": False},
         )
@@ -592,11 +592,12 @@ def _performance(cfg: PortfolioConfig, db_url: str | None) -> None:
                 x=[d.strftime("%b %d") for d in history_dates],
                 y=history["market_value"],
                 mode="lines",
-                name="Reconstructed",
-                line={"color": b.accent, "width": 1.4, "dash": "dash"},
-                hovertemplate="%{x}: %{y:,.0f} "
-                + ccy
-                + "<extra>Reconstructed — today's units at past prices</extra>",
+                name="This portfolio",
+                # The hero series: brightest colour, and clearly the thickest line
+                # on the chart. Dashed still carries "reconstructed, not observed",
+                # but weight and brightness say "read this one first".
+                line={"color": b.accent, "width": 3.0, "dash": "dash"},
+                hovertemplate="<b>%{y:,.0f} " + ccy + "</b><extra>Portfolio</extra>",
             )
         )
         # Comparators are rebased to the reconstructed series' own starting value, so
@@ -605,7 +606,11 @@ def _performance(cfg: PortfolioConfig, db_url: str | None) -> None:
         # constant: both sides are buy-and-hold from the same date, with no
         # contributions on either.
         start_value = float(history["market_value"].iloc[0])
-        palette = list(b.categorical) or [b.primary]
+        # Benchmarks share one hue, separated from each other by dash pattern and
+        # opacity rather than by a second and third colour. Three lines in three
+        # shades of one palette is what made this unreadable; a portfolio and the
+        # things it is measured against are two categories, not three peers.
+        dashes = ("dot", "longdash", "dashdot")
         for index, (label, prices) in enumerate(
             _cached_comparators(
                 tuple((c.label, c.symbol, c.currency or "") for c in cfg.benchmarks.comparators),
@@ -623,11 +628,12 @@ def _performance(cfg: PortfolioConfig, db_url: str | None) -> None:
                     mode="lines",
                     name=label,
                     line={
-                        "color": palette[(index + 2) % len(palette)],
-                        "width": 1.2,
-                        "dash": "dot",
+                        "color": b.benchmark,
+                        "width": 1.7,
+                        "dash": dashes[index % len(dashes)],
                     },
-                    hovertemplate="%{x}: %{y:,.0f} "
+                    opacity=1.0 - 0.25 * index,
+                    hovertemplate="%{y:,.0f} "
                     + ccy
                     + f"<extra>{label} — same starting amount</extra>",
                 )
@@ -658,16 +664,44 @@ def _performance(cfg: PortfolioConfig, db_url: str | None) -> None:
             hovertemplate="%{x}: %{y:,.0f} " + ccy + "<extra>Book value</extra>",
         )
     )
+    # A category axis prints every label, which at weekly sampling over eighteen
+    # months is roughly eighty of them overlapping into a grey band. Thin to a
+    # readable number and let plotly space them evenly.
+    tick_count = max(len(labels), len(history))
     fig.update_layout(
-        height=320,
-        margin={"l": 8, "r": 8, "t": 8, "b": 8},
+        height=440,
+        margin={"l": 8, "r": 8, "t": 44, "b": 8},
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font={"family": b.serif, "color": "#DED8CE"},
-        xaxis={"type": "category", "showgrid": False},
-        yaxis={"gridcolor": GRID_COLOUR, "tickformat": ",.0f", "title": ccy},
-        legend={"orientation": "h", "y": 1.12, "x": 0},
+        font={"family": b.serif, "color": b.ink, "size": 13},
+        xaxis={
+            "type": "category",
+            "showgrid": False,
+            "nticks": 8,
+            "tickangle": 0,
+            "tickfont": {"size": 12},
+        },
+        yaxis={
+            "gridcolor": GRID_COLOUR,
+            "tickformat": ",.0f",
+            "title": None,
+            "ticksuffix": f"  {ccy}",
+            "tickfont": {"size": 12},
+        },
+        # Hover on the nearest x across every series at once, so the portfolio and
+        # its benchmarks are read together rather than one at a time.
+        hovermode="x unified",
+        hoverlabel={"font": {"family": b.serif, "size": 13}},
+        legend={
+            "orientation": "h",
+            "y": 1.14,
+            "x": 0,
+            "font": {"size": 13},
+            "itemwidth": 40,
+        },
     )
+    if tick_count > 40:
+        fig.update_xaxes(nticks=6)
     st.plotly_chart(fig, use_container_width=True)
     if not history.empty:
         st.markdown(
@@ -826,10 +860,13 @@ def _correlations(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
             y=labels[1:],
             zmin=0,
             zmax=1,
-            colorscale=[[0.0, "#2C242A"], [0.5, "#8C6A75"], [1.0, b.primary]],
+            # Two plain-hex stops from the configured palette. A sequential ramp in
+            # one hue is the right encoding for a magnitude, and plotly rejects both
+            # eight-digit hex and a transparent stop here.
+            colorscale=[[0.0, b.primary], [1.0, b.accent]],
             text=text,
             texttemplate="%{text}",
-            textfont={"size": 12, "color": "#DED8CE"},
+            textfont={"size": 12, "color": b.ink},
             hoverongaps=False,
             showscale=False,
             hovertemplate="%{y} x %{x}: %{z:.2f}<extra></extra>",
@@ -840,7 +877,7 @@ def _correlations(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
         margin={"l": 8, "r": 8, "t": 8, "b": 8},
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font={"family": b.serif, "color": "#DED8CE"},
+        font={"family": b.serif, "color": b.ink, "size": 13},
         yaxis={"autorange": "reversed"},
     )
     st.plotly_chart(fig, use_container_width=True)
@@ -1003,7 +1040,7 @@ def _holdings_xray(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
         margin={"l": 8, "r": 8, "t": 8, "b": 8},
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font={"family": b.serif, "color": "#DED8CE"},
+        font={"family": b.serif, "color": b.ink, "size": 13},
         xaxis={"gridcolor": GRID_COLOUR, "tickformat": ",.0f", "title": ccy},
         yaxis={"showgrid": False},
         legend={"orientation": "h", "y": 1.04, "x": 0},
@@ -1112,7 +1149,7 @@ def _donut(cfg: PortfolioConfig, shares: Mapping[str, float], ccy: str) -> None:
         margin={"l": 8, "r": 8, "t": 8, "b": 8},
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font={"family": b.serif, "color": "#DED8CE"},
+        font={"family": b.serif, "color": b.ink, "size": 13},
         showlegend=False,
     )
     st.plotly_chart(fig, use_container_width=True)
@@ -1146,7 +1183,7 @@ def _sector_bars(cfg: PortfolioConfig, shares: Mapping[str, float]) -> None:
         margin={"l": 8, "r": 8, "t": 8, "b": 8},
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font={"family": b.serif, "color": "#DED8CE"},
+        font={"family": b.serif, "color": b.ink, "size": 13},
         xaxis={"gridcolor": GRID_COLOUR, "tickformat": ".0%"},
         yaxis={"showgrid": False},
     )
@@ -1189,7 +1226,7 @@ def _asset_bar(cfg: PortfolioConfig, shares: Mapping[str, float]) -> None:
         margin={"l": 8, "r": 8, "t": 8, "b": 8},
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font={"family": b.serif, "color": "#DED8CE"},
+        font={"family": b.serif, "color": b.ink, "size": 13},
         xaxis={"tickformat": ".0%", "range": [0, 1], "gridcolor": GRID_COLOUR},
         yaxis={"showticklabels": False, "showgrid": False},
         legend={"orientation": "h", "y": -0.3, "x": 0},
@@ -1292,7 +1329,7 @@ def _factor_exposure(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
         margin={"l": 8, "r": 8, "t": 20, "b": 8},
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font={"family": b.serif, "color": "#DED8CE"},
+        font={"family": b.serif, "color": b.ink, "size": 13},
         xaxis={"showgrid": False},
         yaxis={"gridcolor": GRID_COLOUR, "title": "Loading (beta)", "zerolinecolor": "#5A4A50"},
     )

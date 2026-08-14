@@ -45,6 +45,17 @@ class Branding(Strict):
     categorical: tuple[str, ...] = ("#35424D", "#B06E4F", "#5E8B7E", "#8A7E6D", "#6B7A8F")
     serif: str = "Georgia, 'Times New Roman', serif"
 
+    # Chart text and the page behind it. These were hardcoded in the app for one
+    # deployment's palette, so a second deployment rendered its axis labels and
+    # legends in the first one's warm grey — legible, but visibly the wrong hue,
+    # and not something a config-driven theme should be unable to change.
+    ink: str = "#DED8CE"
+    # A benchmark is deliberately not one of the categorical series colours. A
+    # portfolio and the thing it is measured against should not look like two
+    # members of the same set, and a palette built from one hue cannot separate
+    # three lines on a dark ground by brightness alone.
+    benchmark: str = "#7E97A6"
+
     @model_validator(mode="after")
     def _colours_are_hex(self) -> Branding:
         named = {
