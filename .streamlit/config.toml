@@ -1,14 +1,22 @@
-# "Rich Romance" — Caviar / Vaporous Gray / Anemone / Mauvewood / Gilded Beige.
-# Deliberately distinct from the reference's gold-on-black. The app also injects
-# the palette from config at runtime; this file covers the chrome Streamlit
-# paints before any Python runs.
+# "Sage" — Sage Hint / Sage / Moss / Evergreen.
+# Deliberately distinct from the other portfolio's wine-and-gilt, so two
+# dashboards open in adjacent tabs cannot be mistaken for each other. The app
+# also injects the palette from config at runtime; this file covers the chrome
+# Streamlit paints before any Python runs.
+#
+# One value here is derived rather than supplied: the palette is entirely
+# mid-to-light greens with no near-black, and a dark theme needs a page
+# background darker than its darkest brand colour. backgroundColor is Evergreen
+# taken down to a near-black with the same green cast. Every supplied colour
+# still does real work — Evergreen is the card/input surface, Moss the
+# interactive accent, Sage Hint the body text.
 
 [theme]
 base = "dark"
-primaryColor = "#8E2749"          # Anemone
-backgroundColor = "#221C20"       # Caviar
-secondaryBackgroundColor = "#2C242A"
-textColor = "#DED8CE"             # Vaporous Gray
+primaryColor = "#738A6E"          # Moss — buttons, sliders, focus
+backgroundColor = "#18211B"       # derived: Evergreen as a near-black
+secondaryBackgroundColor = "#344C3D"   # Evergreen — cards, inputs, table heads
+textColor = "#BFCFBB"             # Sage Hint
 font = "serif"
 
 [server]
