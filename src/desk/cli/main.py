@@ -233,7 +233,7 @@ def backfill(
     from pathlib import Path
 
     import yaml
-    from sqlalchemy import delete
+    from sqlalchemy import delete, select
 
     from desk.domain.types import Action
     from desk.store.engine import build_engine, create_all, session_factory, session_scope
@@ -266,7 +266,20 @@ def backfill(
                     kind=inst.kind.value,
                 )
             )
-        # opening lots
+        # Existing opening lots, keyed two ways: by content hash to recognise an
+        # unchanged row, and by (account, ticker) to recognise a changed one.
+        #
+        # `merge` cannot do this. It matches on the primary key, which here is an
+        # autoincrement id nobody supplies, so every call is an INSERT — which then
+        # collides with the unique index on source_hash. The idempotency this
+        # command has always claimed was never actually implemented.
+        existing = (
+            s.execute(select(Transaction).where(Transaction.note == "opening lot")).scalars().all()
+        )
+        seen_hashes = {t.source_hash for t in existing}
+        seen_lots = {(t.account_id, t.ticker): t.source_hash for t in existing}
+
+        unchanged, inserted, conflicts = 0, 0, []
         for h in spec.get("holdings", []):
             units = float(h["units"])
             book_native = float(h["book_native"])
@@ -276,7 +289,19 @@ def backfill(
             digest = hashlib.sha256(
                 f"open|{h['account']}|{h['ticker']}|{units}|{book_native}".encode()
             ).hexdigest()
-            s.merge(
+            entries.append((h["ticker"], h["account"], units, unit_cost, fx, ccy))
+
+            if digest in seen_hashes:
+                unchanged += 1
+                continue
+            prior = seen_lots.get((h["account"], h["ticker"]))
+            if prior is not None and prior != digest:
+                # Inserting would leave both lots in the ledger and double the
+                # position — silently, and in the direction that flatters the
+                # portfolio. Refuse and name the flag that does the right thing.
+                conflicts.append(str(h["ticker"]))
+                continue
+            s.add(
                 Transaction(
                     date=as_of,
                     ticker=h["ticker"],
@@ -290,16 +315,39 @@ def backfill(
                     note="opening lot",
                 )
             )
-            entries.append((h["ticker"], h["account"], units, unit_cost, fx, ccy))
+            inserted += 1
+
+        if conflicts:
+            console.print(
+                f"[red]{', '.join(conflicts)} already have an opening lot with different "
+                "units or cost.\n"
+                "  Loading these would add a second lot and double the position rather "
+                "than correct it.\n"
+                "  Re-run with [bold]--reset[/bold] to replace the opening ledger."
+            )
+            raise typer.Exit(1)
         # cash and contributions
         for c in spec.get("cash", []):
             s.merge(
                 Cash(account_id=c["account"], currency=c["currency"], amount=float(c["amount"]))
             )
+        # Deduplicated on the natural key. ContributionRow's primary key is an
+        # autoincrement id and it carries no unique constraint, so `merge` inserted
+        # a fresh row on every run — silently, with nothing to collide against.
+        # Duplicated contributions overstate room used, which is the direction that
+        # wrongly reports someone as over-contributed.
+        known = {
+            (r.date, r.account_id, round(r.amount, 6), r.kind)
+            for r in s.execute(select(ContributionRow)).scalars()
+        }
         for c in spec.get("contributions", []):
             d = c["date"]
             d = _dt.date.fromisoformat(d) if isinstance(d, str) else d
-            s.merge(
+            key = (d, c["account"], round(float(c["amount"]), 6), "contribution")
+            if key in known:
+                continue
+            known.add(key)
+            s.add(
                 ContributionRow(
                     date=d,
                     account_id=c["account"],
@@ -334,6 +382,8 @@ def backfill(
     for p in rolled:
         table.add_row(p.ticker, f"{p.quantity:,.2f}", f"{p.book_value_base:,.2f}")
     console.print(table)
+    if unchanged:
+        console.print(f"[dim]{inserted} lot(s) loaded, {unchanged} already present and unchanged.")
     total = sum(p.book_value_base for p in rolled)
     console.print(
         f"\n[bold]book value[/bold]  {total:>14,.2f} CAD across "
