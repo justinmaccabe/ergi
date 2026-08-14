@@ -146,7 +146,10 @@ def main() -> None:
     db_url = settings.database_url.get_secret_value() if settings.database_url else None
     with tabs[0]:
         _overview(cfg, result, cash, is_demo=is_demo)
+        # Performance above the per-holding tables: it is the thing most people
+        # open the dashboard for, and it used to sit below both of them.
         _performance(cfg, db_url)
+        _positions_tables(cfg, result)
     with tabs[2]:
         _analytics(cfg, result)
     with tabs[3]:
@@ -200,6 +203,20 @@ def _overview(
         st.caption(note)
 
     _allocation(cfg, result, rolled)
+
+
+def _positions_tables(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
+    """Holding-by-holding detail, below the summary and the performance chart.
+
+    Split out so the performance history sits above two long tables rather than
+    beneath them. It was the last element on the tab, which put the chart most
+    people open the dashboard to see off the bottom of the screen.
+    """
+    if result is None or not result.positions:
+        return
+    rolled = aggregate_by_ticker(result.positions)
+    total_book = sum(p.book_value_base for p in rolled)
+    ccy = cfg.locale.base_currency
 
     frame = pd.DataFrame(
         [
