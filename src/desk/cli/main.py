@@ -586,6 +586,7 @@ def status(
 
 @app.command("backfill-snapshots")
 def backfill_snapshots(
+    db: str = typer.Option(None, "--db", help="database URL; defaults to DESK_DATABASE_URL"),
     config: str = typer.Option(None, "--config", "-c", help="path to portfolio.yaml"),
     period: str = typer.Option("5y", "--period", help="how far back to reconstruct"),
     freq: str = typer.Option("W-FRI", "--freq", help="sampling frequency, e.g. W-FRI or B"),
@@ -602,17 +603,24 @@ def backfill_snapshots(
     draws them as a separate, dashed series.
     """
     from desk.services.market import reconstruct_history
-    from desk.settings import SettingsError, get_settings
 
-    try:
-        settings = get_settings()
-    except SettingsError as exc:
-        console.print(f"[red]{exc}")
-        raise typer.Exit(1) from exc
-    if settings.database_url is None:
-        console.print("[red]DESK_DATABASE_URL is not set.")
-        raise typer.Exit(1)
-    db_url = settings.database_url.get_secret_value()
+    # `--db` like every other local command here. Only `fetch-prices` insists on the
+    # environment, because that one runs in CI where a connection string in argv
+    # lands in a log; a command typed at a prompt is better served by not needing a
+    # three-variable prefix that truncates when the line wraps.
+    db_url = db
+    if not db_url:
+        from desk.settings import SettingsError, get_settings
+
+        try:
+            settings = get_settings()
+        except SettingsError as exc:
+            console.print(f"[red]{exc}")
+            raise typer.Exit(1) from exc
+        if settings.database_url is None:
+            console.print("[red]no --db given and DESK_DATABASE_URL is not set.")
+            raise typer.Exit(1)
+        db_url = settings.database_url.get_secret_value()
 
     def _db_config() -> Mapping[str, Any] | None:
         from desk.services.portfolio import load_config_payload
