@@ -139,3 +139,48 @@ class TestMetricBasis:
     def test_the_sharpe_family_is_marked_annualised(self) -> None:
         for label in ("Sharpe ratio", "Sortino ratio", "Treynor ratio", "Calmar ratio"):
             assert METRIC_BASIS[label] == ANNUALISED
+
+
+class TestMissingPricesDoNotBecomeZero:
+    """A holding that listed part-way through the window must truncate it.
+
+    `DataFrame.sum(axis=1)` treats NaN as zero, so a portfolio valued over a window
+    longer than its youngest holding's history appears to hold nothing of that name
+    until it exists, then leap in value on its first trading day. The resulting
+    series is not merely noisy — over five years with one young holding it produced
+    a fabricated 99% drawdown, four-figure annualised volatility, and a Sharpe ratio
+    and beta computed from both. Every figure wrong, none obviously so.
+    """
+
+    def frame(self) -> pd.DataFrame:
+        """Two holdings; the second only starts trading half way through."""
+        index = pd.date_range("2020-01-31", periods=60, freq="ME")
+        old = pd.Series(np.linspace(100.0, 160.0, 60), index=index)
+        young = pd.Series([float("nan")] * 30 + list(np.linspace(50.0, 70.0, 30)), index=index)
+        return pd.DataFrame({"OLD": old, "YOUNG": young})
+
+    def test_summing_across_gaps_fabricates_a_collapse(self) -> None:
+        """The bug, stated as a test so nobody reintroduces it."""
+        history = self.frame()
+        units = pd.Series({"OLD": 10.0, "YOUNG": 100.0})
+        naive = (history * units).sum(axis=1).dropna()
+        stats = risk_stats(naive)
+        assert stats.max_drawdown is not None
+        # The portfolio never fell; the series only "rose" because a holding began.
+        assert stats.volatility is not None and stats.volatility > 0.5
+
+    def test_aligning_first_gives_a_sane_series(self) -> None:
+        history = self.frame()
+        units = pd.Series({"OLD": 10.0, "YOUNG": 100.0})
+        aligned = history.dropna()
+        values = (aligned * units).sum(axis=1)
+        stats = risk_stats(values)
+
+        assert len(aligned) == 30
+        assert stats.volatility is not None and stats.volatility < 0.05
+        # A monotonically rising series has no drawdown at all.
+        assert stats.max_drawdown == pytest.approx(0.0, abs=1e-9)
+
+    def test_the_window_is_set_by_the_youngest_holding(self) -> None:
+        aligned = self.frame().dropna()
+        assert aligned.index.min() == pd.Timestamp("2022-07-31")

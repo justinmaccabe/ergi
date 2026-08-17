@@ -1460,7 +1460,31 @@ def _risk(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
         return
     # Current units held constant over history: a like-for-like backtest of the
     # book as it stands today, not a replay of when each lot was bought.
-    values = (history[columns] * pd.Series({c: units[c] for c in columns})).sum(axis=1)
+    #
+    # Aligned to dates where *every* held name has a price. `sum(axis=1)` treats a
+    # missing price as zero, so without this a holding that listed part-way through
+    # the window contributes nothing until it exists and the portfolio total leaps
+    # on its first trading day. Over a five-year window containing one young
+    # holding that produced a fabricated ~99% drawdown, four-figure volatility and
+    # a Sharpe ratio computed from both — every number on the tab wrong, and none
+    # of them obviously so.
+    aligned = history[columns].dropna()
+    if aligned.empty:
+        st.markdown(
+            '<p class="note">No dates where every holding has a price.</p>',
+            unsafe_allow_html=True,
+        )
+        return
+    values = (aligned * pd.Series({c: units[c] for c in columns})).sum(axis=1)
+    if benchmark is not None:
+        benchmark = benchmark.reindex(aligned.index).ffill().dropna()
+    # The window is set by the youngest holding, which may be far shorter than the
+    # period requested. Reporting the request rather than the reality would attach
+    # five years of implied confidence to eighteen months of data.
+    span = pd.DatetimeIndex(aligned.index)
+    requested_days = {"1y": 365, "3y": 1095, "5y": 1825, "max": 10_000}
+    actual_days = (span.max() - span.min()).days
+    truncated = actual_days < 0.7 * requested_days.get("5y", 1825)
     # A zero risk-free rate turns every Sharpe-family ratio from an excess return
     # into a total return, which overstates them by roughly the cash rate over
     # volatility. The config already asks for the Ken French RF series; this uses it.
@@ -1556,10 +1580,29 @@ def _risk(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
     )
     st.markdown(
         f'<p class="note">Monthly returns over {stats.periods} periods{bench_note}, in '
-        f"{base}, holding current units constant. {rf_note} Statistics needing more "
-        "history than is available are left blank rather than estimated.</p>",
+        f"{base}, holding current units constant, from "
+        f"<strong>{span.min():%b %Y}</strong> to <strong>{span.max():%b %Y}</strong>. "
+        f"{rf_note} Statistics needing more history than is available are left blank "
+        "rather than estimated.</p>",
         unsafe_allow_html=True,
     )
+    if truncated:
+        # The holding whose history begins latest is the one setting the window.
+        newest = max(
+            ((c, history[c].dropna().index.min()) for c in columns),
+            key=lambda pair: pair[1],
+        )
+        name = newest[0]
+        st.markdown(
+            f'<p class="note">The window is shorter than the five years requested '
+            f"because every holding must have a price on a date for the portfolio total "
+            f"to mean anything, and <strong>{name}</strong> is the youngest — it began "
+            f"trading {newest[1]:%b %Y}. Truncating is deliberate: treating a missing "
+            f"price as zero would make the portfolio appear to leap in value on that "
+            f"holding's first trading day, and every statistic here would be computed "
+            f"from that artefact.</p>",
+            unsafe_allow_html=True,
+        )
     st.markdown(
         '<p class="note"><strong>Value at risk is left at its monthly horizon on '
         "purpose.</strong> Scaling a tail quantile to a year by the square root of "
