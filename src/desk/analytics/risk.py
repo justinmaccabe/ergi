@@ -12,12 +12,75 @@ a portfolio question, not a statistics question.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import numpy as np
 import pandas as pd
 
 from desk.domain.types import RiskStats
 
 MIN_PERIODS = 6
+
+# What each statistic is expressed in. Rendered beside the figures because a table
+# mixing annualised and single-period numbers under bare labels invites reading a
+# monthly 5% VaR as an annual one — a difference of roughly three and a half times.
+ANNUALISED = "annualised"
+PER_PERIOD = "per period"
+POINT_IN_TIME = "point-in-time"
+UNITLESS = "unitless"
+
+METRIC_BASIS: Mapping[str, str] = {
+    "Arithmetic mean": ANNUALISED,
+    "Geometric mean": ANNUALISED,
+    "Volatility": ANNUALISED,
+    "Downside deviation": ANNUALISED,
+    "Alpha": ANNUALISED,
+    "Tracking error": ANNUALISED,
+    "Active return": ANNUALISED,
+    "Sharpe ratio": ANNUALISED,
+    "Sortino ratio": ANNUALISED,
+    "Treynor ratio": ANNUALISED,
+    "Calmar ratio": ANNUALISED,
+    "Information ratio": ANNUALISED,
+    # Deliberately not scaled. A drawdown is the worst observed peak-to-trough
+    # decline; multiplying it by anything would describe a loss nobody suffered.
+    "Maximum drawdown": POINT_IN_TIME,
+    # Left at the horizon they are measured over. Scaling a quantile by the square
+    # root of twelve assumes returns are independent and normal, which is the
+    # assumption a tail statistic exists to interrogate — so an "annual VaR"
+    # produced that way is most wrong in exactly the conditions it is consulted for.
+    "Historical VaR (5%)": PER_PERIOD,
+    "Analytical VaR (5%)": PER_PERIOD,
+    "Conditional VaR (5%)": PER_PERIOD,
+    # Dimensionless by construction.
+    "Beta": UNITLESS,
+    "R squared": UNITLESS,
+    "Skewness": UNITLESS,
+    "Excess kurtosis": UNITLESS,
+    "Up capture": UNITLESS,
+    "Down capture": UNITLESS,
+    "Positive periods": UNITLESS,
+    "Gain/loss ratio": UNITLESS,
+}
+
+
+def annual_risk_free(factors: pd.DataFrame, months: int = 12) -> float:
+    """Annualised risk-free rate from a factor frame's RF column.
+
+    Zero is not a harmless default for a Sharpe ratio: it turns the numerator from
+    an excess return into a total return, which overstates the ratio by roughly the
+    cash rate divided by volatility. At a 4% rate and 12% volatility that is about
+    a third of a point of Sharpe conjured from nothing.
+
+    Averaged over the most recent `months` rather than the whole history, since the
+    relevant rate is the one an investor could actually have earned lately.
+    """
+    if factors is None or factors.empty or "RF" not in factors.columns:
+        return 0.0
+    recent = factors["RF"].dropna().tail(months)
+    if recent.empty:
+        return 0.0
+    return float(recent.mean()) * 12.0
 
 
 def periodic_returns(values: pd.Series, freq: str = "ME") -> pd.Series:

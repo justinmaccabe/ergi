@@ -1235,6 +1235,13 @@ def _asset_bar(cfg: PortfolioConfig, shares: Mapping[str, float]) -> None:
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
+def _cached_factor_frame(provider_name: str, cache_dir: str) -> pd.DataFrame:
+    from desk.services.factors import load_factors
+
+    return load_factors(provider_name, cache_dir or None)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def _cached_exposure(
     symbols: tuple[tuple[str, str], ...],
     currencies: tuple[tuple[str, str], ...],
@@ -1454,7 +1461,20 @@ def _risk(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
     # Current units held constant over history: a like-for-like backtest of the
     # book as it stands today, not a replay of when each lot was bought.
     values = (history[columns] * pd.Series({c: units[c] for c in columns})).sum(axis=1)
-    stats = risk_stats(values.dropna(), benchmark)
+    # A zero risk-free rate turns every Sharpe-family ratio from an excess return
+    # into a total return, which overstates them by roughly the cash rate over
+    # volatility. The config already asks for the Ken French RF series; this uses it.
+    rf = 0.0
+    if cfg.risk.risk_free == "kenfrench_rf" and cfg.data.factor_provider != "none":
+        from desk.analytics.risk import annual_risk_free
+
+        try:
+            rf = annual_risk_free(
+                _cached_factor_frame(cfg.data.factor_provider, cfg.data.cache_dir)
+            )
+        except Exception:
+            rf = 0.0
+    stats = risk_stats(values.dropna(), benchmark, risk_free_rate=rf)
 
     if stats.periods < 6:
         st.markdown(
@@ -1506,12 +1526,19 @@ def _risk(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
         ("Positive periods", stats.positive_periods),
         ("Gain/loss ratio", stats.gain_loss_ratio),
     ]
+    from desk.analytics.risk import METRIC_BASIS, UNITLESS
+
     formatted = [
         {
             "Metric": label,
             "Value": (
                 "—" if value is None else (f"{value:.2%}" if label in pct else f"{value:.2f}")
             ),
+            # Stated per row rather than in a footnote. Twelve of these are
+            # annualised and three are not, and under bare labels a monthly 5% VaR
+            # reads as an annual one — an understatement of roughly three and a half
+            # times, in the direction that makes a portfolio look safer.
+            "Basis": METRIC_BASIS.get(label, UNITLESS),
         }
         for label, value in rows
     ]
@@ -1520,10 +1547,27 @@ def _risk(cfg: PortfolioConfig, result: LedgerResult | None) -> None:
     left.dataframe(pd.DataFrame(formatted[:half]), width="stretch", hide_index=True)
     right.dataframe(pd.DataFrame(formatted[half:]), width="stretch", hide_index=True)
     bench_note = f" against {bench_symbol}" if bench_symbol else " (no benchmark configured)"
+    rf_note = (
+        f"Excess returns are measured over a {rf:.2%} annual risk-free rate, taken from "
+        "the factor library's own cash series."
+        if rf > 0
+        else "The risk-free rate is zero, so the Sharpe family are total-return ratios "
+        "rather than excess-return ones and read high."
+    )
     st.markdown(
         f'<p class="note">Monthly returns over {stats.periods} periods{bench_note}, in '
-        f"{base}, holding current units constant. Statistics that need more history than "
-        "is available are left blank rather than estimated.</p>",
+        f"{base}, holding current units constant. {rf_note} Statistics needing more "
+        "history than is available are left blank rather than estimated.</p>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<p class="note"><strong>Value at risk is left at its monthly horizon on '
+        "purpose.</strong> Scaling a tail quantile to a year by the square root of "
+        "twelve assumes returns are independent and normally distributed — which is "
+        "the assumption a tail statistic exists to test, so the annualised figure "
+        "would be least reliable in exactly the conditions it gets consulted for. "
+        "Maximum drawdown is likewise the worst decline actually observed; scaling it "
+        "would describe a loss nobody suffered.</p>",
         unsafe_allow_html=True,
     )
 
